@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVGTracer - Premium Vector Grid Illustrator</title>
+    <meta name="description" content="Draw, trace, and export custom SVG vectors with snapping, layers, and advanced stroke/fill properties on an interactive grid workspace.">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark-theme">
+    <!-- App Container -->
+    <div class="app-layout" id="appLayout">
+        
+        <!-- Header / Top Navigation -->
+        <header class="app-header" id="appHeader">
+            <div class="brand">
+                <svg class="logo-icon" viewBox="0 0 32 32" width="28" height="28" fill="none">
+                    <defs>
+                        <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#dfb75c" />
+                            <stop offset="100%" stop-color="#ffd700" />
+                        </linearGradient>
+                    </defs>
+                    <path d="M6 16 L12 6 L20 26 L26 16" stroke="url(#logoGrad)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" />
+                    <circle cx="6" cy="16" r="3" fill="#dfb75c" />
+                    <circle cx="12" cy="6" r="3" fill="#dfb75c" />
+                    <circle cx="20" cy="26" r="3" fill="#ffd700" />
+                    <circle cx="26" cy="16" r="3" fill="#ffd700" />
+                </svg>
+                <span class="logo-text">SVG<span class="gradient-text">Tracer</span></span>
+            </div>
+
+            <!-- Central Actions (Undo/Redo & Zoom) -->
+            <div class="header-controls">
+                <div class="control-group">
+                    <button class="btn btn-icon" id="btnUndo" title="Undo (Ctrl+Z)" disabled>
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path></svg>
+                    </button>
+                    <button class="btn btn-icon" id="btnRedo" title="Redo (Ctrl+Y)" disabled>
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"></path><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path></svg>
+                    </button>
+                </div>
+                
+                <div class="divider"></div>
+
+                <div class="control-group zoom-controls">
+                    <button class="btn btn-icon" id="btnZoomOut" title="Zoom Out">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                    <span class="zoom-value" id="lblZoomLevel">100%</span>
+                    <button class="btn btn-icon" id="btnZoomIn" title="Zoom In">
+                        <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                    <button class="btn btn-secondary btn-sm" id="btnResetZoom">Reset</button>
+                </div>
+                
+                <div class="divider"></div>
+                
+                <button class="btn btn-icon" id="btnCanvasTheme" title="Toggle Canvas Light/Dark Mode">
+                    <!-- Sun icon (shows when canvas is dark) -->
+                    <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                    </svg>
+                    <!-- Moon icon (shows when canvas is light) -->
+                    <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                    </svg>
+                </button>
+                
+                <div class="divider"></div>
+
+                <button class="btn btn-danger btn-sm" id="btnClearCanvas" title="Clear Canvas">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="btn-icon-left"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                    Clear
+                </button>
+            </div>
+
+            <!-- Import/Export Actions -->
+            <div class="header-actions">
+                <button class="btn btn-secondary" id="btnImport" title="Import SVG markup or file">
+                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="btn-icon-left"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    Import SVG
+                </button>
+                <div class="dropdown-wrapper">
+                    <button class="btn btn-primary" id="btnExportMenu" title="Export Drawings">
+                        <span>Export</span>
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </button>
+                    <div class="dropdown-menu" id="exportDropdown">
+                        <div class="dropdown-checkbox-item">
+                            <input type="checkbox" id="chkExportLightMode">
+                            <label for="chkExportLightMode">Export with light background</label>
+                        </div>
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item" id="btnCopyOffice">
+                            <span class="item-title">Copy for Office Suite</span>
+                            <span class="item-desc">Copy as vector graphics metadata</span>
+                        </button>
+                        <button class="dropdown-item" id="btnExportSVG">
+                            <span class="item-title">Export SVG File</span>
+                            <span class="item-desc">Download clean .svg vector</span>
+                        </button>
+                        <button class="dropdown-item" id="btnCopySVG">
+                            <span class="item-title">Copy SVG Code</span>
+                            <span class="item-desc">Copy raw XML to clipboard</span>
+                        </button>
+                        <button class="dropdown-item" id="btnExportPNG">
+                            <span class="item-title">Export PNG</span>
+                            <span class="item-desc">Rasterized high-res image</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace Area -->
+        <main class="app-workspace">
+            
+            <!-- Left Tool Sidebar -->
+            <aside class="tool-sidebar" id="toolSidebar">
+                <div class="tool-section-title">Tools</div>
+                
+                <button class="tool-btn active" id="toolSelect" data-tool="select" title="Select / Move / Resize (V)">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
+                    <span class="tool-shortcut">V</span>
+                </button>
+                
+                <button class="tool-btn" id="toolPan" data-tool="pan" title="Pan Canvas (H or Hold Space)">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"></path><path d="M9 21H3v-6"></path><path d="M21 3l-7 7"></path><path d="M3 21l7-7"></path></svg>
+                    <span class="tool-shortcut">H</span>
+                </button>
+
+                <div class="sidebar-divider"></div>
+                <div class="tool-section-title">Draw</div>
+
+                <button class="tool-btn" id="toolPen" data-tool="pen" title="Pen / Path Tool (P)">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    <span class="tool-shortcut">P</span>
+                </button>
+                
+                <button class="tool-btn" id="toolLine" data-tool="line" title="Line Segment (L)">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="19" x2="19" y2="5"></line></svg>
+                    <span class="tool-shortcut">L</span>
+                </button>
+
+                <button class="tool-btn" id="toolRect" data-tool="rect" title="Rectangle (R)">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+                    <span class="tool-shortcut">R</span>
+                </button>
+
+                <button class="tool-btn" id="toolEllipse" data-tool="ellipse" title="Ellipse / Circle (O)">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle></svg>
+                    <span class="tool-shortcut">O</span>
+                </button>
+
+                <button class="tool-btn" id="toolPolygon" data-tool="polygon" title="Polygon (Y)">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 22 8.5 22 19.5 12 26 2 19.5 2 8.5"></polygon></svg>
+                    <span class="tool-shortcut">Y</span>
+                </button>
+
+                <button class="tool-btn" id="toolBucket" data-tool="bucket" title="Bucket Fill (G)">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-5.5c-.5 1.5-2 3.9-4 5.5s-3 3.5-3 5.5a7 7 0 0 0 7 7z"></path></svg>
+                    <span class="tool-shortcut">G</span>
+                </button>
+
+                <button class="tool-btn" id="toolText" data-tool="text" title="Text Box (T)">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
+                    <span class="tool-shortcut">T</span>
+                </button>
+
+                <div class="sidebar-divider"></div>
+                
+                <div class="keyboard-tips">
+                    <span class="tips-title">Quick Help</span>
+                    <span class="tip"><kbd>Ctrl</kbd>+<kbd>Z</kbd> Undo</span>
+                    <span class="tip"><kbd>Ctrl</kbd>+<kbd>Y</kbd> Redo</span>
+                    <span class="tip"><kbd>G</kbd> Bucket Fill</span>
+                    <span class="tip"><kbd>T</kbd> Text Box</span>
+                    <span class="tip"><kbd>Esc</kbd> Cancel Path</span>
+                    <span class="tip"><kbd>Del</kbd> Delete Shape</span>
+                    <span class="tip"><kbd>Arrows</kbd> Nudge Shape</span>
+                    <span class="tip"><kbd>Shift</kbd> Constrain shape</span>
+                </div>
+            </aside>
+
+            <!-- Center Infinite Grid Canvas -->
+            <div class="canvas-viewport" id="canvasViewport">
+                <!-- SVG Canvas Container -->
+                <div class="canvas-container" id="canvasContainer">
+                    <svg id="svgGrid" class="svg-grid" width="100%" height="100%">
+                        <defs>
+                            <!-- The Grid Pattern definitions -->
+                            <pattern id="gridPattern" width="100" height="100" patternUnits="userSpaceOnUse">
+                                <path d="M 100 0 L 0 0 0 100" fill="none" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" />
+                            </pattern>
+                        </defs>
+                        <!-- Grid overlay backplate -->
+                        <rect width="100000" height="100000" x="-50000" y="-50000" fill="url(#gridPattern)" id="gridBackplate" />
+                        
+                        <!-- World group: all content transformed by zoom/pan via SVG transform -->
+                        <g id="worldGroup">
+                            <!-- Drawing content group -->
+                            <g id="drawGroup"></g>
+                            
+                            <!-- Drawing Preview / Overlay elements (Pen line tracing, bounding box selection) -->
+                            <g id="previewGroup"></g>
+                            
+                            <!-- Transformer / Handles Overlay Group (rendered dynamically above elements) -->
+                            <g id="transformerGroup" style="pointer-events: none;"></g>
+                        </g>
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Right Inspector & Layers Sidebar -->
+            <aside class="inspector-sidebar" id="inspectorSidebar">
+                
+                <!-- Tab Headers -->
+                <div class="tab-header">
+                    <button class="tab-btn active" id="tabBtnProperties" data-tab="properties">Properties</button>
+                    <button class="tab-btn" id="tabBtnLayers" data-tab="layers">Layers</button>
+                </div>
+
+                <!-- Tab Content: Properties -->
+                <div class="tab-content active" id="tabContentProperties">
+                    
+                    <!-- Selection Properties (shows only when something is selected) -->
+                    <div class="inspector-section" id="selectionProperties" style="display: none;">
+                        <div class="section-title">Selected Element (<span id="txtSelectedType">none</span>)</div>
+                        
+                        <!-- Dimensions -->
+                        <div class="properties-grid" id="dimensionFields">
+                            <div class="field">
+                                <label for="valX">X</label>
+                                <input type="number" id="valX" class="form-input" step="1">
+                            </div>
+                            <div class="field">
+                                <label for="valY">Y</label>
+                                <input type="number" id="valY" class="form-input" step="1">
+                            </div>
+                            <div class="field">
+                                <label for="valW" id="lblW">Width</label>
+                                <input type="number" id="valW" class="form-input" step="1">
+                            </div>
+                            <div class="field">
+                                <label for="valH" id="lblH">Height</label>
+                                <input type="number" id="valH" class="form-input" step="1">
+                            </div>
+                            <div class="field full-width" id="cornerRadiusField">
+                                <label for="valRx">Corner Radius (rx)</label>
+                                <div class="range-row">
+                                    <input type="range" id="valRx" min="0" max="100" value="0" class="form-range">
+                                    <span class="range-val" id="lblRx">0px</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="sidebar-divider"></div>
+
+                        <!-- Text Specific Properties -->
+                        <div class="inspector-section" id="textProperties" style="display: none;">
+                            <div class="section-title">Text Options</div>
+                            <div class="field">
+                                <label for="valTextContent">Content</label>
+                                <textarea id="valTextContent" class="form-input form-textarea" style="height: 50px; font-family: inherit; font-size: 0.85rem; resize: none;"></textarea>
+                            </div>
+                            <div class="properties-grid grid-2" style="margin-top: 6px;">
+                                <div class="field">
+                                    <label for="valFontSize">Font Size</label>
+                                    <div class="number-input-group">
+                                        <button class="btn-icon-sm" id="btnFontSizeDec" title="Decrease Font Size" type="button">
+                                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                        </button>
+                                        <input type="number" id="valFontSize" min="8" max="150" step="1" value="20" class="form-input">
+                                        <button class="btn-icon-sm" id="btnFontSizeInc" title="Increase Font Size" type="button">
+                                            <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label for="valFontFamily">Font Family</label>
+                                    <select id="valFontFamily" class="form-select">
+                                        <option value="Outfit">Outfit</option>
+                                        <option value="Helvetica">Helvetica</option>
+                                        <option value="Fira Code">Fira Code</option>
+                                        <option value="Arial">Arial</option>
+                                        <option value="Times New Roman">Times New Roman</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Fill Properties -->
+                        <div class="section-title">Fill</div>
+                        <div class="fill-properties-row">
+                            <div class="fill-type-selector">
+                                <button class="btn btn-sm btn-fill-type active" id="btnFillNone" data-fill="none">None</button>
+                                <button class="btn btn-sm btn-fill-type" id="btnFillColor" data-fill="color">Solid</button>
+                                <button class="btn btn-sm btn-fill-type" id="btnFillGradient" data-fill="gradient">Grad</button>
+                            </div>
+                            
+                            <div class="color-picker-wrapper" id="fillColorWrapper" style="display: none; flex-direction: column; gap: 6px; width: 100%;">
+                                <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+                                    <input type="color" id="valFillColor" value="#ffffff" class="form-color">
+                                    <input type="text" id="valFillHex" class="form-input text-hex" value="#ffffff">
+                                </div>
+                                <div class="properties-row fill-color-history-row" style="margin-top: 2px; align-items: center; justify-content: flex-start; gap: 8px;">
+                                    <label style="min-width: 45px;">Recent</label>
+                                    <div class="color-history-swatches" id="fillColorHistory"></div>
+                                </div>
+                            </div>
+
+                            <div class="gradient-selector-wrapper" id="fillGradWrapper" style="display: none;">
+                                <select id="valFillGradientSelect" class="form-select">
+                                    <option value="grad-cyan-blue">Neon Ice</option>
+                                    <option value="grad-purple-pink">Sunset Glow</option>
+                                    <option value="grad-gold-orange">Sol Forest</option>
+                                    <option value="grad-emerald-teal">Cyberpunk Emerald</option>
+                                    <option value="grad-dark-mode">Monochrome</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="sidebar-divider"></div>
+
+                        <!-- Stroke Properties -->
+                        <div class="section-title">Stroke</div>
+                        <div class="stroke-properties-group">
+                            <div class="fill-type-selector" id="strokeTypeSelector">
+                                <button class="btn btn-sm btn-stroke-type" id="btnStrokeNone" data-stroke="none" type="button">None</button>
+                                <button class="btn btn-sm btn-stroke-type active" id="btnStrokeSolid" data-stroke="solid" type="button">Solid</button>
+                                <button class="btn btn-sm btn-stroke-type" id="btnStrokeDashed" data-stroke="dashed" type="button">Dash</button>
+                                <button class="btn btn-sm btn-stroke-type" id="btnStrokeDotted" data-stroke="dotted" type="button">Dot</button>
+                            </div>
+                            
+                            <div id="strokeSubProperties">
+                                <div class="properties-row">
+                                    <label>Stroke Color</label>
+                                    <div class="color-picker-wrapper">
+                                        <input type="color" id="valStrokeColor" value="#ffffff" class="form-color">
+                                        <input type="text" id="valStrokeHex" class="form-input text-hex" value="#ffffff">
+                                    </div>
+                                </div>
+                                <div class="properties-row stroke-color-history-row" style="margin-top: 6px; align-items: center; justify-content: flex-start; gap: 8px;">
+                                    <label style="min-width: 45px;">Recent</label>
+                                    <div class="color-history-swatches" id="strokeColorHistory"></div>
+                                </div>
+                                <div class="properties-grid grid-2" style="grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+                                    <div class="field">
+                                        <label for="valStrokeWidth">Width</label>
+                                        <div class="number-input-group">
+                                            <button class="btn-icon-sm" id="btnStrokeWidthDec" title="Decrease Stroke Width" type="button">
+                                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                            </button>
+                                            <input type="number" id="valStrokeWidth" min="1" max="100" step="0.5" value="2" class="form-input">
+                                            <button class="btn-icon-sm" id="btnStrokeWidthInc" title="Increase Stroke Width" type="button">
+                                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="field">
+                                        <label for="valStrokeJoin">Line Join</label>
+                                        <select id="valStrokeJoin" class="form-select">
+                                            <option value="miter">Miter</option>
+                                            <option value="round">Round</option>
+                                            <option value="bevel">Bevel</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="sidebar-divider"></div>
+
+                        <!-- Opacity Properties -->
+                        <div class="section-title">Opacity & Blend</div>
+                        <div class="properties-row">
+                            <div class="field">
+                                <label for="valOpacity">Layer Opacity</label>
+                                <div class="range-row">
+                                    <input type="range" id="valOpacity" min="0" max="100" value="100" class="form-range">
+                                    <span class="range-val" id="lblOpacity">100%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="actions-row" style="grid-template-columns: repeat(4, 1fr); gap: 6px;">
+                            <button class="btn btn-secondary btn-sm" id="btnMoveToBack" title="Send to Back" type="button">
+                                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+                            </button>
+                            <button class="btn btn-secondary btn-sm" id="btnMoveToFront" title="Bring to Front" type="button">
+                                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                            </button>
+                            <button class="btn btn-secondary btn-sm" id="btnDuplicateSelected" title="Duplicate Shape" type="button">
+                                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                            <button class="btn btn-secondary btn-sm btn-danger-hover" id="btnDeleteSelected" title="Delete Element" type="button">
+                                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            </button>
+                        </div>
+                        <div class="actions-row" style="grid-template-columns: 1fr; margin-top: 6px;">
+                            <button class="btn btn-primary btn-sm" id="btnCopySelectionOffice">Copy Selection for Office</button>
+                        </div>
+                    </div>
+
+                    <!-- No Selection Message -->
+                    <div class="inspector-empty" id="selectionPropertiesEmpty">
+                        <svg viewBox="0 0 24 24" width="36" height="36" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="empty-icon"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                        <p>No element selected</p>
+                        <span class="subtext">Select an element on canvas to modify its dimensions, fills, and strokes.</span>
+                    </div>
+
+                    <div class="sidebar-divider"></div>
+
+                    <!-- Grid & Snap Settings -->
+                    <div class="inspector-section">
+                        <div class="section-title">Workspace Settings</div>
+                        
+                        <div class="field flex-row">
+                            <input type="checkbox" id="chkShowGrid" checked>
+                            <label for="chkShowGrid">Show Grid Lines</label>
+                        </div>
+
+                        <div class="field flex-row">
+                            <input type="checkbox" id="chkSnapToGrid" checked>
+                            <label for="chkSnapToGrid">Snap to Grid</label>
+                        </div>
+
+                        <div class="properties-row">
+                            <div class="field">
+                                <label for="valGridSize">Grid Snap Size</label>
+                                <select id="valGridSize" class="form-select">
+                                    <option value="5">5 px</option>
+                                    <option value="10">10 px</option>
+                                    <option value="20" selected>20 px</option>
+                                    <option value="50">50 px</option>
+                                    <option value="100">100 px</option>
+                                </select>
+                            </div>
+                        </div>
+
+
+                    </div>
+                </div>
+
+                <!-- Tab Content: Layers -->
+                <div class="tab-content" id="tabContentLayers">
+                    <div class="layers-header">
+                        <span>Canvas Elements</span>
+                        <div class="layers-actions">
+                            <button class="btn btn-icon btn-sm" id="btnMoveLayerToBack" title="Send to Back">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+                            </button>
+                            <button class="btn btn-icon btn-sm" id="btnMoveLayerDown" title="Move Layer Down">
+                                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            </button>
+                            <button class="btn btn-icon btn-sm" id="btnMoveLayerUp" title="Move Layer Up">
+                                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>
+                            </button>
+                            <button class="btn btn-icon btn-sm" id="btnMoveLayerToFront" title="Bring to Front">
+                                <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Dynamic Layers List -->
+                    <div class="layers-list" id="layersList">
+                        <!-- Filled dynamically by app.js -->
+                    </div>
+
+                    <!-- Empty layers fallback -->
+                    <div class="inspector-empty" id="layersEmpty">
+                        <svg viewBox="0 0 24 24" width="36" height="36" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" class="empty-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+                        <p>No layers yet</p>
+                        <span class="subtext">Add shapes using the drawing tools on the left.</span>
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- Status Footer -->
+        <footer class="app-footer" id="appFooter">
+            <div class="footer-segment">
+                <span class="label">Tool:</span>
+                <span class="value" id="lblActiveTool">Select</span>
+            </div>
+            <div class="footer-segment">
+                <span class="label">Coords:</span>
+                <span class="value" id="lblCoords">X: 0px, Y: 0px</span>
+            </div>
+            <div class="footer-segment" id="snapIndicator">
+                <span class="badge badge-accent">SNAP ACTIVE</span>
+            </div>
+            <div class="footer-segment spacer"></div>
+            <div class="footer-segment">
+                <span class="value opacity-50">SVGTracer Vector Editor v1.0.0</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Import Modal Overlay -->
+    <div class="modal-overlay" id="importModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Import SVG Elements</h3>
+                <button class="modal-close" id="btnImportClose">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-description">Paste clean SVG XML markup below to import custom vectors directly onto the workspace. Basic elements like <code>rect</code>, <code>circle</code>, <code>ellipse</code>, <code>line</code>, <code>polyline</code>, <code>polygon</code>, and <code>path</code> are supported.</p>
+                
+                <div class="import-source-selection">
+                    <label class="btn btn-secondary full-width text-center cursor-pointer" for="fileSvgInput">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="btn-icon-left"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+                        Upload SVG File
+                    </label>
+                    <input type="file" id="fileSvgInput" accept=".svg" style="display: none;">
+                </div>
+
+                <div class="modal-label">Or paste SVG Markup:</div>
+                <textarea id="txtSvgPaste" class="form-textarea code-font" placeholder="<svg ...> ... </svg>"></textarea>
+                <div id="importError" class="validation-error" style="display: none;">Invalid SVG format or unsupported elements.</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btnImportCancel">Cancel</button>
+                <button class="btn btn-primary" id="btnImportSubmit">Import markup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Core App Engine Script -->
+    <script src="app.js"></script>
+</body>
+</html>
