@@ -144,6 +144,17 @@
                     <span class="tool-shortcut">P</span>
                 </button>
                 
+                <button class="tool-btn" id="toolTrace" data-tool="trace" title="Trace (Smooth Path) (S)">
+                    <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 17c3-9 13-9 16 0"></path>
+                        <circle cx="3" cy="17" r="2" fill="currentColor"></circle>
+                        <circle cx="19" cy="17" r="2" fill="currentColor"></circle>
+                        <circle cx="11" cy="9" r="2" fill="currentColor"></circle>
+                    </svg>
+                    <span class="tool-shortcut">S</span>
+                </button>
+
+                
                 <button class="tool-btn" id="toolLine" data-tool="line" title="Line Segment (L)">
                     <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="19" x2="19" y2="5"></line></svg>
                     <span class="tool-shortcut">L</span>
@@ -205,6 +216,8 @@
                         
                         <!-- World group: all content transformed by zoom/pan via SVG transform -->
                         <g id="worldGroup">
+                            <!-- Background trace image group -->
+                            <g id="imageGroup"></g>
                             <!-- Drawing content group -->
                             <g id="drawGroup"></g>
                             
@@ -445,7 +458,94 @@
                             </div>
                         </div>
 
+                        <div class="sidebar-divider" style="margin-top: 12px; margin-bottom: 12px;"></div>
+                        
+                        <div class="field flex-row">
+                            <input type="checkbox" id="chkEnableSymmetry">
+                            <label for="chkEnableSymmetry">Enable Symmetry Line</label>
+                        </div>
+                        
+                        <button class="btn btn-secondary btn-sm full-width" id="btnSetSymmetryLine" type="button">
+                            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="btn-icon-left"><line x1="5" y1="19" x2="19" y2="5"></line></svg>
+                            Place Symmetry Line
+                        </button>
+                    </div>
 
+                    <!-- Trace Image Settings -->
+                    <div class="inspector-section" id="traceImageSettingsSection">
+                        <div class="section-title">Trace Image Settings</div>
+                        
+                        <div class="field">
+                            <label class="btn btn-secondary full-width text-center cursor-pointer" for="traceImageFileInput" style="margin-bottom: 8px;">
+                                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" class="btn-icon-left"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                                Upload Trace Image
+                            </label>
+                            <input type="file" id="traceImageFileInput" accept="image/*" style="display: none;">
+                        </div>
+
+                        <div id="traceImageControls" style="display: none; flex-direction: column; gap: 8px; margin-top: 8px;">
+                            <div class="field flex-row">
+                                <input type="checkbox" id="chkShowTraceImage" checked>
+                                <label for="chkShowTraceImage">Show Image</label>
+                            </div>
+
+                            <div class="field">
+                                <label for="valTraceImageOpacity">Image Opacity</label>
+                                <div class="range-row">
+                                    <input type="range" id="valTraceImageOpacity" min="0" max="100" value="50" class="form-range">
+                                    <span class="range-val" id="lblTraceImageOpacity">50%</span>
+                                </div>
+                            </div>
+
+                            <div class="field">
+                                <label for="valTraceImageScale">Image Scale</label>
+                                <div class="range-row">
+                                    <input type="range" id="valTraceImageScale" min="10" max="400" value="100" class="form-range">
+                                    <span class="range-val" id="lblTraceImageScale">100%</span>
+                                </div>
+                            </div>
+
+                            <div class="properties-grid" style="grid-template-columns: 1fr 1fr; gap: 8px;">
+                                <div class="field">
+                                    <label for="valTraceImageX">Offset X (px)</label>
+                                    <input type="number" id="valTraceImageX" class="form-input" step="10" value="0">
+                                </div>
+                                <div class="field">
+                                    <label for="valTraceImageY">Offset Y (px)</label>
+                                    <input type="number" id="valTraceImageY" class="form-input" step="10" value="0">
+                                </div>
+                            </div>
+
+                            <div class="actions-row" style="grid-template-columns: 1fr; margin-top: 6px;">
+                                <button class="btn btn-secondary btn-sm btn-danger-hover" id="btnRemoveTraceImage" type="button">Remove Image</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trace Session Settings & Actions -->
+                    <div class="inspector-section" id="traceSessionSection" style="display: none; margin-top: 12px;">
+                        <div class="sidebar-divider"></div>
+                        <div class="section-title">Path Smoothing</div>
+                        <div class="field flex-row">
+                            <input type="checkbox" id="chkSmoothTrace" checked>
+                            <label for="chkSmoothTrace">Smooth Path</label>
+                        </div>
+
+                        <div class="field" id="traceSmoothingField">
+                            <label for="valTraceSmoothing">Smoothing Amount</label>
+                            <div class="range-row">
+                                <input type="range" id="valTraceSmoothing" min="0" max="100" value="50" class="form-range">
+                                <span class="range-val" id="lblTraceSmoothing">50%</span>
+                            </div>
+                        </div>
+
+                        <div class="sidebar-divider" style="margin-top: 12px; margin-bottom: 12px;"></div>
+                        <div class="section-title">Session Actions</div>
+                        <div class="properties-grid" style="grid-template-columns: 1fr 1fr; gap: 8px;">
+                            <button class="btn btn-primary btn-sm" id="btnCompleteOpenTrace" type="button">Complete Open</button>
+                            <button class="btn btn-primary btn-sm" id="btnCompleteClosedTrace" type="button">Complete Closed</button>
+                        </div>
+                        <button class="btn btn-secondary btn-sm btn-danger-hover full-width" style="margin-top: 8px;" id="btnClearTrace" type="button">Clear Points</button>
                     </div>
                 </div>
 

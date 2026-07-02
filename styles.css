@@ -968,6 +968,9 @@ label {
 .text-center {
     text-align: center;
 }
+.full-width {
+    width: 100%;
+}
 
 .modal-label {
     font-size: 0.72rem;

@@ -3,11 +3,26 @@
     'use strict';
 
     // State Variables
-    let activeTool = 'select'; // select, pan, pen, line, rect, ellipse, polygon
+    let activeTool = 'select'; // select, pan, pen, line, rect, ellipse, polygon, trace, symmetry
     let zoom = 1.0;
     let panX = 0;
     let panY = 0;
     
+    // Trace Image State
+    let traceImageEl = null;
+    let traceImageOpacity = 0.5;
+    let traceImageScale = 1.0;
+    let traceImageX = 0;
+    let traceImageY = 0;
+    let showTraceImage = true;
+    
+    // Trace Session State
+    let tracePoints = [];
+    let draggedPointIndex = -1; // -1: none, 0+: tracePoints index, -10: symmetry point S0, -11: symmetry point S1
+    let symmetryEnabled = false;
+    let symmetryPoints = [{x: 0, y: -150}, {x: 0, y: 150}]; // Initial vertical symmetry line centered
+    let placingSymmetryPoints = 0; // 0: no, 1: placing S0, 2: placing S1
+
     let selectedEl = null;
     const selection = {
         elements: [],
@@ -85,6 +100,27 @@
     const previewGroup = document.getElementById('previewGroup');
     const transformerGroup = document.getElementById('transformerGroup');
     const gridBackplate = document.getElementById('gridBackplate');
+    const imageGroup = document.getElementById('imageGroup');
+    const traceImageFileInput = document.getElementById('traceImageFileInput');
+    const traceImageControls = document.getElementById('traceImageControls');
+    const chkShowTraceImage = document.getElementById('chkShowTraceImage');
+    const valTraceImageOpacity = document.getElementById('valTraceImageOpacity');
+    const lblTraceImageOpacity = document.getElementById('lblTraceImageOpacity');
+    const valTraceImageScale = document.getElementById('valTraceImageScale');
+    const lblTraceImageScale = document.getElementById('lblTraceImageScale');
+    const valTraceImageX = document.getElementById('valTraceImageX');
+    const valTraceImageY = document.getElementById('valTraceImageY');
+    const btnRemoveTraceImage = document.getElementById('btnRemoveTraceImage');
+    const traceSessionSection = document.getElementById('traceSessionSection');
+    const chkEnableSymmetry = document.getElementById('chkEnableSymmetry');
+    const btnSetSymmetryLine = document.getElementById('btnSetSymmetryLine');
+    const btnCompleteOpenTrace = document.getElementById('btnCompleteOpenTrace');
+    const btnCompleteClosedTrace = document.getElementById('btnCompleteClosedTrace');
+    const btnClearTrace = document.getElementById('btnClearTrace');
+    const chkSmoothTrace = document.getElementById('chkSmoothTrace');
+    const traceSmoothingField = document.getElementById('traceSmoothingField');
+    const valTraceSmoothing = document.getElementById('valTraceSmoothing');
+    const lblTraceSmoothing = document.getElementById('lblTraceSmoothing');
 
     // UI Inputs & Buttons
     const btnUndo = document.getElementById('btnUndo');
@@ -1349,6 +1385,296 @@
         return newD;
     }
 
+    // PATH GENERATION (STRAIGHT SEGMENTS OR SMOOTH BEZIER CURVES)
+    function getSmoothPathD(points, closed = false) {
+        if (points.length === 0) return '';
+        if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+        if (points.length === 2) {
+            let d = `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+            if (closed) d += ' Z';
+            return d;
+        }
+
+        const isSmoothEnabled = chkSmoothTrace ? chkSmoothTrace.checked : true;
+        const smoothingAmount = valTraceSmoothing ? parseFloat(valTraceSmoothing.value) / 100 : 0.5;
+
+        if (!isSmoothEnabled || smoothingAmount <= 0) {
+            let d = `M ${points[0].x} ${points[0].y}`;
+            for (let i = 1; i < points.length; i++) {
+                d += ` L ${points[i].x} ${points[i].y}`;
+            }
+            if (closed) d += ' Z';
+            return d;
+        }
+
+        // Catmull-Rom spline to Cubic Bezier conversion
+        let d = `M ${points[0].x} ${points[0].y}`;
+        const n = points.length;
+
+        for (let i = 0; i < (closed ? n : n - 1); i++) {
+            const pCurr = points[i];
+            const pNext = points[(i + 1) % n];
+
+            let pPrev, pNextNext;
+
+            if (closed) {
+                pPrev = points[(i - 1 + n) % n];
+                pNextNext = points[(i + 2) % n];
+            } else {
+                pPrev = i > 0 ? points[i - 1] : pCurr;
+                pNextNext = i + 2 < n ? points[i + 2] : pNext;
+            }
+
+            const cp1X = pCurr.x + ((pNext.x - pPrev.x) / 6) * smoothingAmount;
+            const cp1Y = pCurr.y + ((pNext.y - pPrev.y) / 6) * smoothingAmount;
+
+            const cp2X = pNext.x - ((pNextNext.x - pCurr.x) / 6) * smoothingAmount;
+            const cp2Y = pNext.y - ((pNextNext.y - pCurr.y) / 6) * smoothingAmount;
+
+            d += ` C ${cp1X.toFixed(2)} ${cp1Y.toFixed(2)}, ${cp2X.toFixed(2)} ${cp2Y.toFixed(2)}, ${pNext.x.toFixed(2)} ${pNext.y.toFixed(2)}`;
+        }
+
+        if (closed) {
+            d += ' Z';
+        }
+        return d;
+    }
+
+    function getPathD(points, closed = false) {
+        return getSmoothPathD(points, closed);
+    }
+
+    // TRACE IMAGE HELPERS
+    function updateTraceImageDOM() {
+        if (!traceImageEl) return;
+        traceImageEl.setAttribute('opacity', showTraceImage ? traceImageOpacity : 0);
+        const x = traceImageX;
+        const y = traceImageY;
+        const s = traceImageScale;
+        traceImageEl.setAttribute('transform', `translate(${x}, ${y}) scale(${s})`);
+    }
+
+    function handleTraceImageUpload(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const dataUrl = e.target.result;
+            const tempImg = new Image();
+            tempImg.onload = function() {
+                const w = tempImg.width;
+                const h = tempImg.height;
+                
+                imageGroup.innerHTML = '';
+                
+                const img = document.createElementNS('http://www.w3.org/2000/svg', 'image');
+                img.setAttribute('id', 'traceImage');
+                img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', dataUrl);
+                img.setAttribute('x', -w / 2);
+                img.setAttribute('y', -h / 2);
+                img.setAttribute('width', w);
+                img.setAttribute('height', h);
+                img.setAttribute('style', 'pointer-events: none;');
+                
+                imageGroup.appendChild(img);
+                traceImageEl = img;
+                
+                traceImageOpacity = 0.5;
+                traceImageScale = 1.0;
+                traceImageX = 0;
+                traceImageY = 0;
+                showTraceImage = true;
+                
+                valTraceImageOpacity.value = 50;
+                lblTraceImageOpacity.innerText = '50%';
+                valTraceImageScale.value = 100;
+                lblTraceImageScale.innerText = '100%';
+                valTraceImageX.value = 0;
+                valTraceImageY.value = 0;
+                chkShowTraceImage.checked = true;
+                
+                traceImageControls.style.display = 'flex';
+                
+                updateTraceImageDOM();
+            };
+            tempImg.src = dataUrl;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function removeTraceImage() {
+        imageGroup.innerHTML = '';
+        traceImageEl = null;
+        traceImageControls.style.display = 'none';
+        traceImageFileInput.value = '';
+    }
+
+    // ARBITRARY ANGLE SYMMETRY MIRROR MATH
+    function mirrorPoint(p, s0, s1) {
+        const dx = s1.x - s0.x;
+        const dy = s1.y - s0.y;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) return { x: p.x, y: p.y };
+        
+        const t = ((p.x - s0.x) * dx + (p.y - s0.y) * dy) / lenSq;
+        const projX = s0.x + t * dx;
+        const projY = s0.y + t * dy;
+        
+        return {
+            x: 2 * projX - p.x,
+            y: 2 * projY - p.y
+        };
+    }
+
+    // TRACE PREVIEW RENDERING & INTERACTIVE HANDLES
+    function renderTracePreview() {
+        previewGroup.innerHTML = '';
+        
+        if (activeTool !== 'trace' && !symmetryEnabled) return;
+        
+        // 1. Draw Symmetry Line
+        if (symmetryEnabled && symmetryPoints.length === 2) {
+            const s0 = symmetryPoints[0];
+            const s1 = symmetryPoints[1];
+            
+            const dx = s1.x - s0.x;
+            const dy = s1.y - s0.y;
+            const len = Math.hypot(dx, dy);
+            
+            let xStart = s0.x - (dx / len) * 100000;
+            let yStart = s0.y - (dy / len) * 100000;
+            let xEnd = s1.x + (dx / len) * 100000;
+            let yEnd = s1.y + (dy / len) * 100000;
+            
+            if (len === 0) {
+                xStart = -100000; yStart = 0;
+                xEnd = 100000; yEnd = 0;
+            }
+            
+            const symLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            symLine.setAttribute('x1', xStart);
+            symLine.setAttribute('y1', yStart);
+            symLine.setAttribute('x2', xEnd);
+            symLine.setAttribute('y2', yEnd);
+            symLine.setAttribute('stroke', '#ff7b00');
+            symLine.setAttribute('stroke-width', 1.5 / zoom);
+            symLine.setAttribute('stroke-dasharray', `${8/zoom},${4/zoom}`);
+            symLine.setAttribute('style', 'pointer-events: none;');
+            previewGroup.appendChild(symLine);
+            
+            // Draw Handles for Symmetry Points (Orange Squares)
+            symmetryPoints.forEach((sp, idx) => {
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                const size = 10 / zoom;
+                rect.setAttribute('x', sp.x - size / 2);
+                rect.setAttribute('y', sp.y - size / 2);
+                rect.setAttribute('width', size);
+                rect.setAttribute('height', size);
+                rect.setAttribute('fill', '#ff7b00');
+                rect.setAttribute('stroke', '#ffffff');
+                rect.setAttribute('stroke-width', 1.5 / zoom);
+                rect.setAttribute('style', 'cursor: pointer; pointer-events: auto;');
+                rect.setAttribute('data-sym-idx', idx);
+                previewGroup.appendChild(rect);
+            });
+        }
+        
+        // 2. Draw Active Trace Path (Original)
+        if (activeTool === 'trace' && tracePoints.length > 0) {
+            const originalPathD = getPathD(tracePoints, false);
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', originalPathD);
+            path.setAttribute('stroke', '#05d590');
+            path.setAttribute('stroke-width', 2 / zoom);
+            path.setAttribute('fill', 'none');
+            path.setAttribute('stroke-dasharray', `${4/zoom},${4/zoom}`);
+            path.setAttribute('style', 'pointer-events: none;');
+            previewGroup.appendChild(path);
+            
+            // Draw Point Handles (Green/Gold Circles)
+            tracePoints.forEach((pt, idx) => {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', pt.x);
+                circle.setAttribute('cy', pt.y);
+                circle.setAttribute('r', 6 / zoom);
+                circle.setAttribute('fill', idx === 0 ? '#ffd700' : '#05d590');
+                circle.setAttribute('stroke', '#ffffff');
+                circle.setAttribute('stroke-width', 1.5 / zoom);
+                circle.setAttribute('style', 'cursor: move; pointer-events: auto;');
+                circle.setAttribute('data-trace-idx', idx);
+                previewGroup.appendChild(circle);
+            });
+            
+            // 3. Draw Mirrored Path & Handles
+            if (symmetryEnabled && symmetryPoints.length === 2) {
+                const s0 = symmetryPoints[0];
+                const s1 = symmetryPoints[1];
+                const mirroredPoints = tracePoints.map(pt => mirrorPoint(pt, s0, s1));
+                
+                const mirroredPathD = getPathD(mirroredPoints, false);
+                const mirPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                mirPath.setAttribute('d', mirroredPathD);
+                mirPath.setAttribute('stroke', '#00f2fe');
+                mirPath.setAttribute('stroke-width', 2 / zoom);
+                mirPath.setAttribute('fill', 'none');
+                mirPath.setAttribute('stroke-dasharray', `${4/zoom},${4/zoom}`);
+                mirPath.setAttribute('style', 'pointer-events: none;');
+                previewGroup.appendChild(mirPath);
+                
+                mirroredPoints.forEach((pt) => {
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', pt.x);
+                    circle.setAttribute('cy', pt.y);
+                    circle.setAttribute('r', 5 / zoom);
+                    circle.setAttribute('fill', 'rgba(0, 242, 254, 0.4)');
+                    circle.setAttribute('stroke', 'rgba(255, 255, 255, 0.8)');
+                    circle.setAttribute('stroke-width', 1 / zoom);
+                    circle.setAttribute('style', 'pointer-events: none;');
+                    previewGroup.appendChild(circle);
+                });
+            }
+        }
+    }
+
+    function completeTraceSession(closed = false) {
+        if (tracePoints.length === 0) return;
+        
+        let pathD = '';
+        if (symmetryEnabled && symmetryPoints.length === 2) {
+            const s0 = symmetryPoints[0];
+            const s1 = symmetryPoints[1];
+            const mirroredPoints = tracePoints.map(pt => mirrorPoint(pt, s0, s1));
+            
+            const d1 = getPathD(tracePoints, closed);
+            const d2 = getPathD(mirroredPoints, closed);
+            pathD = `${d1} ${d2}`;
+        } else {
+            pathD = getPathD(tracePoints, closed);
+        }
+        
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.id = generateId('path');
+        path.setAttribute('d', pathD);
+        applyStyleTo(path, defaultStyle);
+        drawGroup.appendChild(path);
+        
+        tracePoints = [];
+        draggedPointIndex = -1;
+        
+        renderTracePreview();
+        selectElement(path);
+        saveState();
+    }
+
+    function clearTraceSession() {
+        tracePoints = [];
+        draggedPointIndex = -1;
+        placingSymmetryPoints = 0;
+        btnSetSymmetryLine.innerText = 'Place Symmetry Line';
+        btnSetSymmetryLine.classList.remove('btn-primary');
+        btnSetSymmetryLine.classList.add('btn-secondary');
+        renderTracePreview();
+    }
+
     // CANVAS DRAW INTERACTION
     function addDrawPoint(x, y) {
         if (activeTool === 'pen') {
@@ -1373,6 +1699,27 @@
                     drawingPoints.push({ x, y });
                     let d = activeDrawEl.getAttribute('d');
                     d += ` L ${x} ${y}`;
+                    activeDrawEl.setAttribute('d', d);
+                }
+            }
+        } else if (activeTool === 'trace') {
+            if (drawingPoints.length === 0) {
+                drawingPoints.push({ x, y });
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.id = generateId('path');
+                path.setAttribute('d', `M ${x} ${y}`);
+                applyStyleTo(path, defaultStyle);
+                drawGroup.appendChild(path);
+                activeDrawEl = path;
+                isDrawing = true;
+            } else {
+                const start = drawingPoints[0];
+                const dist = Math.hypot(x - start.x, y - start.y);
+                if (dist < Math.max(10, gridSize)) {
+                    finishActiveDraw(true);
+                } else {
+                    drawingPoints.push({ x, y });
+                    const d = getSmoothPathD(drawingPoints, false);
                     activeDrawEl.setAttribute('d', d);
                 }
             }
@@ -1404,17 +1751,27 @@
         if (!isDrawing || !activeDrawEl) return;
         previewGroup.innerHTML = '';
         
-        const lastPt = drawingPoints[drawingPoints.length - 1];
-        
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', lastPt.x);
-        line.setAttribute('y1', lastPt.y);
-        line.setAttribute('x2', x);
-        line.setAttribute('y2', y);
-        line.setAttribute('stroke', '#dfb75c');
-        line.setAttribute('stroke-width', 1.5 / zoom);
-        line.setAttribute('stroke-dasharray', `${4/zoom},${4/zoom}`);
-        previewGroup.appendChild(line);
+        if (activeTool === 'trace') {
+            const previewPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            const d = getSmoothPathD([...drawingPoints, { x, y }], false);
+            previewPath.setAttribute('d', d);
+            previewPath.setAttribute('stroke', '#dfb75c');
+            previewPath.setAttribute('stroke-width', 1.5 / zoom);
+            previewPath.setAttribute('stroke-dasharray', `${4/zoom},${4/zoom}`);
+            previewPath.setAttribute('fill', 'none');
+            previewGroup.appendChild(previewPath);
+        } else {
+            const lastPt = drawingPoints[drawingPoints.length - 1];
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', lastPt.x);
+            line.setAttribute('y1', lastPt.y);
+            line.setAttribute('x2', x);
+            line.setAttribute('y2', y);
+            line.setAttribute('stroke', '#dfb75c');
+            line.setAttribute('stroke-width', 1.5 / zoom);
+            line.setAttribute('stroke-dasharray', `${4/zoom},${4/zoom}`);
+            previewGroup.appendChild(line);
+        }
         
         // Show start point proximity indicator
         const start = drawingPoints[0];
@@ -1431,13 +1788,16 @@
         }
     }
 
-    function finishActiveDraw() {
+    function finishActiveDraw(isClosed = false) {
         if (!isDrawing) return;
         previewGroup.innerHTML = '';
         if (activeDrawEl) {
             if (activeTool === 'polygon') {
                 const ptsStr = drawingPoints.map(p => `${p.x},${p.y}`).join(' ');
                 activeDrawEl.setAttribute('points', ptsStr);
+            } else if (activeTool === 'trace') {
+                const d = getSmoothPathD(drawingPoints, isClosed);
+                activeDrawEl.setAttribute('d', d);
             }
             const el = activeDrawEl;
             activeDrawEl = null;
@@ -1467,6 +1827,7 @@
         if (mainPattern) mainPattern.setAttribute('patternTransform', `translate(${panX}, ${panY}) scale(${zoom})`);
         lblZoomLevel.innerText = `${Math.round(zoom * 100)}%`;
         updateTransformer();
+        renderTracePreview();
     }
 
     function updateGridLines() {
@@ -2326,6 +2687,9 @@
         });
         
         cancelActiveDraw();
+        if (activeTool !== 'trace') {
+            clearTraceSession();
+        }
         updateCursor();
         
         if (activeTool === 'bucket') {
@@ -2334,11 +2698,34 @@
             canvasViewport.classList.remove('tool-bucket-active');
         }
         
+        if (activeTool === 'trace') {
+            traceSessionSection.style.display = 'flex';
+        } else {
+            traceSessionSection.style.display = 'none';
+        }
+        
+        renderTracePreview();
         selectElement(null);
     }
 
     // MAIN EVENTS CONTROLLER BINDINGS
     function setupEventHandlers() {
+        // Prevent default native browser autoscroll on middle click and prevent HTML drag start ghosting
+        window.addEventListener('mousedown', (e) => {
+            if (e.button === 1) {
+                e.preventDefault();
+            }
+        });
+        window.addEventListener('dragstart', (e) => {
+            e.preventDefault();
+        });
+        window.addEventListener('mouseup', (e) => {
+            if (dragMode === 'pan') {
+                dragMode = 'none';
+                updateCursor();
+            }
+        });
+
         // Spacebar Panning toggle & Escape return to select
         window.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
@@ -2385,6 +2772,7 @@
         // 2. Mouse interactions on canvas
         canvasViewport.addEventListener('mousedown', (e) => {
             if (e.button === 1 || activeTool === 'pan' || spacePressed) {
+                e.preventDefault();
                 dragMode = 'pan';
                 dragStart = { x: e.clientX, y: e.clientY };
                 initialPan = { x: panX, y: panY };
@@ -2394,6 +2782,58 @@
             
             if (e.button !== 0) return;
             const coords = getCanvasCoords(e);
+
+            const target = e.target;
+
+            // 1. Placing symmetry points (persistent workspace setup)
+            if (placingSymmetryPoints > 0) {
+                symmetryPoints[placingSymmetryPoints - 1] = { x: coords.rawX, y: coords.rawY };
+                if (placingSymmetryPoints === 1) {
+                    placingSymmetryPoints = 2;
+                    btnSetSymmetryLine.innerText = 'Click Point 2 on Canvas...';
+                } else {
+                    placingSymmetryPoints = 0;
+                    btnSetSymmetryLine.innerText = 'Place Symmetry Line';
+                    btnSetSymmetryLine.classList.remove('btn-primary');
+                    btnSetSymmetryLine.classList.add('btn-secondary');
+                }
+                renderTracePreview();
+                return;
+            }
+            
+            // 2. Dragging symmetry handles (when symmetry is enabled)
+            if (symmetryEnabled && target && target.dataset.symIdx !== undefined) {
+                const idx = parseInt(target.dataset.symIdx, 10);
+                draggedPointIndex = idx === 0 ? -10 : -11;
+                return;
+            }
+            if (symmetryEnabled && symmetryPoints.length === 2) {
+                const symIdx = symmetryPoints.findIndex(sp => Math.hypot(coords.rawX - sp.x, coords.rawY - sp.y) < 12 / zoom);
+                if (symIdx !== -1) {
+                    draggedPointIndex = symIdx === 0 ? -10 : -11;
+                    return;
+                }
+            }
+
+            if (activeTool === 'trace') {
+                // 1. Check if clicked on trace point handle
+                if (target && target.dataset.traceIdx !== undefined) {
+                    draggedPointIndex = parseInt(target.dataset.traceIdx, 10);
+                    return;
+                }
+                
+                // Proximity check fallback
+                const traceIdx = tracePoints.findIndex(pt => Math.hypot(coords.rawX - pt.x, coords.rawY - pt.y) < 10 / zoom);
+                if (traceIdx !== -1) {
+                    draggedPointIndex = traceIdx;
+                    return;
+                }
+                
+                // Otherwise, add a new point (using raw coordinates)
+                tracePoints.push({ x: coords.rawX, y: coords.rawY });
+                renderTracePreview();
+                return;
+            }
             
             // Shift drag triggers marquee area selection (always available regardless of active tool)
             if (e.shiftKey) {
@@ -2496,7 +2936,7 @@
                 }
             } else {
                 // Drawing basic elements
-                if (activeTool === 'pen' || activeTool === 'polygon') {
+                if (activeTool === 'pen' || activeTool === 'polygon' || activeTool === 'trace') {
                     addDrawPoint(coords.x, coords.y);
                 } else if (activeTool === 'text') {
                     showTextEditorOverlay(coords.x, coords.y);
@@ -2541,6 +2981,38 @@
 
         canvasViewport.addEventListener('mousemove', (e) => {
             const coords = getCanvasCoords(e);
+
+            // Handle dragging symmetry points and trace points
+            if (draggedPointIndex !== -1) {
+                if (draggedPointIndex >= 0 && activeTool === 'trace') {
+                    tracePoints[draggedPointIndex] = { x: coords.rawX, y: coords.rawY };
+                    renderTracePreview();
+                    return;
+                } else if (draggedPointIndex === -10) {
+                    symmetryPoints[0] = { x: coords.rawX, y: coords.rawY };
+                    renderTracePreview();
+                    return;
+                } else if (draggedPointIndex === -11) {
+                    symmetryPoints[1] = { x: coords.rawX, y: coords.rawY };
+                    renderTracePreview();
+                    return;
+                }
+            }
+            
+            // Hover cursor styling when hovering over handles
+            if (dragMode === 'none') {
+                const target = e.target;
+                if (activeTool === 'trace' && target && target.dataset.traceIdx !== undefined) {
+                    canvasViewport.style.cursor = 'move';
+                    return;
+                } else if (symmetryEnabled && target && target.dataset.symIdx !== undefined) {
+                    canvasViewport.style.cursor = 'pointer';
+                    return;
+                } else if (activeTool === 'trace') {
+                    canvasViewport.style.cursor = 'crosshair';
+                    return;
+                }
+            }
             
             if (dragMode === 'pan') {
                 const dx = e.clientX - dragStart.x;
@@ -2763,12 +3235,17 @@
                 return;
             }
             
-            if (isDrawing && (activeTool === 'pen' || activeTool === 'polygon')) {
+            if (isDrawing && (activeTool === 'pen' || activeTool === 'polygon' || activeTool === 'trace')) {
                 updateDrawPreview(coords.x, coords.y);
             }
         });
 
         canvasViewport.addEventListener('mouseup', (e) => {
+            if (draggedPointIndex !== -1) {
+                draggedPointIndex = -1;
+                return;
+            }
+            
             if (dragMode === 'pan') {
                 dragMode = 'none';
                 updateCursor();
@@ -2865,6 +3342,15 @@
         });
 
         canvasViewport.addEventListener('dblclick', (e) => {
+            if (isDrawing && (activeTool === 'pen' || activeTool === 'polygon' || activeTool === 'trace')) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (drawingPoints.length > 1) {
+                    drawingPoints.pop(); // Remove the extra double click point
+                }
+                finishActiveDraw(false);
+                return;
+            }
             const target = e.target;
             if (target && target.tagName.toLowerCase() === 'text' && drawGroup.contains(target)) {
                 if (target.getAttribute('data-locked') === 'true') return;
@@ -3219,9 +3705,11 @@
                     saveState();
                 }
             } else if (e.key === 'Escape') {
-                if (isDrawing) {
+                if (activeTool === 'trace') {
+                    clearTraceSession();
+                } else if (isDrawing) {
                     if (activeTool === 'pen' || activeTool === 'polygon') {
-                        finishActiveDraw();
+                        finishActiveDraw(false);
                     } else {
                         cancelActiveDraw();
                     }
@@ -3229,8 +3717,10 @@
                     selectElements([]);
                 }
             } else if (e.key === 'Enter') {
-                if (isDrawing && (activeTool === 'pen' || activeTool === 'polygon')) {
-                    finishActiveDraw();
+                if (activeTool === 'trace') {
+                    completeTraceSession(false);
+                } else if (isDrawing && (activeTool === 'pen' || activeTool === 'polygon')) {
+                    finishActiveDraw(false);
                 }
             } else if (e.key.startsWith('Arrow') && selection.elements.length > 0) {
                 let nudge = 1;
@@ -3262,6 +3752,7 @@
                 else if (e.key.toLowerCase() === 'y') triggerToolBtn('polygon');
                 else if (e.key.toLowerCase() === 'g') triggerToolBtn('bucket');
                 else if (e.key.toLowerCase() === 't') triggerToolBtn('text');
+                else if (e.key.toLowerCase() === 's') triggerToolBtn('trace');
             }
         });
         
@@ -3270,6 +3761,87 @@
                 saveState();
             }
         });
+
+        // Trace Image Settings Event Listeners
+        traceImageFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                handleTraceImageUpload(file);
+            }
+        });
+        
+        chkShowTraceImage.addEventListener('change', (e) => {
+            showTraceImage = e.target.checked;
+            updateTraceImageDOM();
+        });
+        
+        valTraceImageOpacity.addEventListener('input', (e) => {
+            traceImageOpacity = parseInt(e.target.value) / 100;
+            lblTraceImageOpacity.innerText = `${e.target.value}%`;
+            updateTraceImageDOM();
+        });
+        
+        valTraceImageScale.addEventListener('input', (e) => {
+            traceImageScale = parseInt(e.target.value) / 100;
+            lblTraceImageScale.innerText = `${e.target.value}%`;
+            updateTraceImageDOM();
+        });
+        
+        valTraceImageX.addEventListener('input', (e) => {
+            traceImageX = parseFloat(e.target.value) || 0;
+            updateTraceImageDOM();
+        });
+        
+        valTraceImageY.addEventListener('input', (e) => {
+            traceImageY = parseFloat(e.target.value) || 0;
+            updateTraceImageDOM();
+        });
+        
+        btnRemoveTraceImage.addEventListener('click', () => {
+            removeTraceImage();
+        });
+
+        // Trace Session & Symmetry Guide Event Listeners
+        chkEnableSymmetry.addEventListener('change', (e) => {
+            symmetryEnabled = e.target.checked;
+            renderTracePreview();
+        });
+        
+        btnSetSymmetryLine.addEventListener('click', () => {
+            placingSymmetryPoints = 1;
+            btnSetSymmetryLine.innerText = 'Click Point 1 on Canvas...';
+            btnSetSymmetryLine.classList.remove('btn-secondary');
+            btnSetSymmetryLine.classList.add('btn-primary');
+            // If they click Set Symmetry Line, enable symmetry automatically
+            chkEnableSymmetry.checked = true;
+            symmetryEnabled = true;
+            renderTracePreview();
+        });
+        
+        btnCompleteOpenTrace.addEventListener('click', () => {
+            completeTraceSession(false);
+        });
+        
+        btnCompleteClosedTrace.addEventListener('click', () => {
+            completeTraceSession(true);
+        });
+        
+        btnClearTrace.addEventListener('click', () => {
+            clearTraceSession();
+        });
+
+        chkSmoothTrace.addEventListener('change', (e) => {
+            const isSmooth = e.target.checked;
+            traceSmoothingField.style.display = isSmooth ? 'block' : 'none';
+            renderTracePreview();
+        });
+
+        valTraceSmoothing.addEventListener('input', (e) => {
+            lblTraceSmoothing.innerText = `${e.target.value}%`;
+            renderTracePreview();
+        });
+
+
     }
 
     function triggerToolBtn(toolName) {
