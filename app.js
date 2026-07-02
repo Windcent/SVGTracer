@@ -74,6 +74,8 @@
     let spacePressed = false;
     let shapeCounts = {};
     let clickedElement = null;
+    let rotationCenter = { x: 0, y: 0 };
+    let initialMouseAngle = 0;
 
     // Default styles for new shapes / selections
     let defaultStyle = {
@@ -134,6 +136,7 @@
     const btnExportMenu = document.getElementById('btnExportMenu');
     const exportDropdown = document.getElementById('exportDropdown');
     const btnExportSVG = document.getElementById('btnExportSVG');
+    const btnExportDXF = document.getElementById('btnExportDXF');
     const btnCopyOffice = document.getElementById('btnCopyOffice');
     const btnCopySelectionOffice = document.getElementById('btnCopySelectionOffice');
     const btnExportPNG = document.getElementById('btnExportPNG');
@@ -155,6 +158,10 @@
     const valY = document.getElementById('valY');
     const valW = document.getElementById('valW');
     const valH = document.getElementById('valH');
+    const valRotationAngle = document.getElementById('valRotationAngle');
+    const btnRotateCCW = document.getElementById('btnRotateCCW');
+    const btnRotateCW = document.getElementById('btnRotateCW');
+    const btnRotateReset = document.getElementById('btnRotateReset');
     const txtSelectedType = document.getElementById('txtSelectedType');
     const cornerRadiusField = document.getElementById('cornerRadiusField');
     const valRx = document.getElementById('valRx');
@@ -1216,6 +1223,48 @@
         saveState();
     }
 
+    function getElementRotation(el) {
+        const transform = el.getAttribute('transform');
+        if (transform) {
+            const match = transform.match(/rotate\(\s*([-\d.]+)(?:\s*,\s*([-\d.]+)\s*,\s*([-\d.]+))?\s*\)/);
+            if (match) {
+                const angle = parseFloat(match[1]);
+                let cx = match[2] !== undefined ? parseFloat(match[2]) : null;
+                let cy = match[3] !== undefined ? parseFloat(match[3]) : null;
+                if (cx === null || cy === null) {
+                    const bbox = el.getBBox();
+                    cx = bbox.x + bbox.width / 2;
+                    cy = bbox.y + bbox.height / 2;
+                }
+                return { angle, cx, cy };
+            }
+        }
+        const bbox = el.getBBox();
+        return {
+            angle: 0,
+            cx: bbox.x + bbox.width / 2,
+            cy: bbox.y + bbox.height / 2
+        };
+    }
+
+    function setElementRotation(el, angle, cx, cy) {
+        if (cx === undefined || cy === undefined) {
+            const bbox = el.getBBox();
+            cx = bbox.x + bbox.width / 2;
+            cy = bbox.y + bbox.height / 2;
+        }
+        // Round to 2 decimal places to keep XML markup clean
+        angle = Math.round(angle * 100) / 100;
+        cx = Math.round(cx * 100) / 100;
+        cy = Math.round(cy * 100) / 100;
+        
+        if (angle === 0) {
+            el.removeAttribute('transform');
+        } else {
+            el.setAttribute('transform', `rotate(${angle}, ${cx}, ${cy})`);
+        }
+    }
+
     function moveElementBy(el, dx, dy) {
         const tagName = el.tagName.toLowerCase();
         if (tagName === 'rect') {
@@ -1258,6 +1307,12 @@
             el.querySelectorAll('tspan').forEach(tspan => {
                 tspan.setAttribute('x', newX);
             });
+        }
+        
+        // Update rotation center
+        const rot = getElementRotation(el);
+        if (rot.angle !== 0) {
+            setElementRotation(el, rot.angle, rot.cx + dx, rot.cy + dy);
         }
     }
 
@@ -1856,7 +1911,10 @@
     // TRANSFORMER / SELECTION OUTLINES & HANDLES
     function updateTransformer() {
         transformerGroup.innerHTML = '';
-        if (selection.elements.length === 0 || activeTool !== 'select') return;
+        if (selection.elements.length === 0 || (activeTool !== 'select' && activeTool !== 'rotate')) {
+            transformerGroup.removeAttribute('transform');
+            return;
+        }
         
         const bounds = getCollectiveBounds(selection.elements);
         const x = bounds.x;
@@ -1864,6 +1922,18 @@
         const w = bounds.w;
         const h = bounds.h;
         
+        // Apply transform to transformerGroup if exactly 1 element is selected
+        if (selection.elements.length === 1) {
+            const rot = getElementRotation(selection.active);
+            if (rot.angle !== 0) {
+                transformerGroup.setAttribute('transform', `rotate(${rot.angle}, ${rot.cx}, ${rot.cy})`);
+            } else {
+                transformerGroup.removeAttribute('transform');
+            }
+        } else {
+            transformerGroup.removeAttribute('transform');
+        }
+
         const handleSize = Math.max(6, 8 / zoom);
         const offset = handleSize / 2;
         
@@ -1879,6 +1949,41 @@
         outline.setAttribute('fill', 'none');
         transformerGroup.appendChild(outline);
         
+        if (activeTool === 'rotate') {
+            // Draw a crosshair/circle at rotation center
+            const cx = x + w / 2;
+            const cy = y + h / 2;
+            
+            const centerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            centerCircle.setAttribute('cx', cx);
+            centerCircle.setAttribute('cy', cy);
+            centerCircle.setAttribute('r', Math.max(4, 5 / zoom));
+            centerCircle.setAttribute('fill', 'none');
+            centerCircle.setAttribute('stroke', '#dfb75c');
+            centerCircle.setAttribute('stroke-width', 1.5 / zoom);
+            
+            const lineH = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            lineH.setAttribute('x1', cx - Math.max(6, 8 / zoom));
+            lineH.setAttribute('y1', cy);
+            lineH.setAttribute('x2', cx + Math.max(6, 8 / zoom));
+            lineH.setAttribute('y2', cy);
+            lineH.setAttribute('stroke', '#dfb75c');
+            lineH.setAttribute('stroke-width', 1.2 / zoom);
+            
+            const lineV = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            lineV.setAttribute('x1', cx);
+            lineV.setAttribute('y1', cy - Math.max(6, 8 / zoom));
+            lineV.setAttribute('x2', cx);
+            lineV.setAttribute('y2', cy + Math.max(6, 8 / zoom));
+            lineV.setAttribute('stroke', '#dfb75c');
+            lineV.setAttribute('stroke-width', 1.2 / zoom);
+            
+            transformerGroup.appendChild(centerCircle);
+            transformerGroup.appendChild(lineH);
+            transformerGroup.appendChild(lineV);
+            return;
+        }
+
         const handlePoints = {
             'nw': { x: x, y: y },
             'n':  { x: x + w/2, y: y },
@@ -1923,6 +2028,10 @@
                 initialElementCoordsList = selection.elements.map(el => {
                     const tag = el.tagName.toLowerCase();
                     const info = { el, tag };
+                    const rot = getElementRotation(el);
+                    info.rotAngle = rot.angle;
+                    info.rotCx = rot.cx;
+                    info.rotCy = rot.cy;
                     if (tag === 'rect') {
                         info.x = parseFloat(el.getAttribute('x')) || 0;
                         info.y = parseFloat(el.getAttribute('y')) || 0;
@@ -1990,6 +2099,9 @@
                 valY.value = Math.round(bounds.y);
                 valW.value = Math.round(bounds.w);
                 valH.value = Math.round(bounds.h);
+                
+                const valRotationAngle = document.getElementById('valRotationAngle');
+                if (valRotationAngle) valRotationAngle.value = '';
             } else {
                 const tagName = selectedEl.tagName.toLowerCase();
                 txtSelectedType.innerText = tagName;
@@ -2040,6 +2152,11 @@
                 valY.value = Math.round(y);
                 valW.value = Math.round(w);
                 valH.value = Math.round(h);
+                
+                const valRotationAngle = document.getElementById('valRotationAngle');
+                if (valRotationAngle) {
+                    valRotationAngle.value = Math.round(getElementRotation(selectedEl).angle);
+                }
             }
             
             // Sync Color & Opacity
@@ -2107,6 +2224,9 @@
             
             valOpacity.value = Math.round(defaultStyle.opacity * 100);
             lblOpacity.innerText = `${Math.round(defaultStyle.opacity * 100)}%`;
+            
+            const valRotationAngle = document.getElementById('valRotationAngle');
+            if (valRotationAngle) valRotationAngle.value = 0;
         }
         renderColorHistory();
         renderFillColorHistory();
@@ -2621,6 +2741,230 @@
         }
     }
 
+    // DXF EXPORT ENGINE
+    function sanitizeLayerName(name) {
+        if (!name) return '0';
+        // DXF R12 layer names must be alphanumeric/spaces/dashes/underscores. Maximum length is 31.
+        return name.replace(/[\\\/:\*\?"<>\|=\`\s]/g, '_').substring(0, 31) || '0';
+    }
+
+    function getElementMatrix(el) {
+        if (el.transform && el.transform.baseVal && el.transform.baseVal.numberOfItems > 0) {
+            try {
+                const consolidated = el.transform.baseVal.consolidate();
+                if (consolidated) {
+                    return consolidated.matrix;
+                }
+            } catch (e) {
+                console.error('Error consolidating transform matrix', e);
+            }
+        }
+        return null;
+    }
+
+    function transformPoint(x, y, matrix) {
+        if (!matrix) return { x, y };
+        return {
+            x: x * matrix.a + y * matrix.c + matrix.e,
+            y: x * matrix.b + y * matrix.d + matrix.f
+        };
+    }
+
+    function exportDXF() {
+        const targets = Array.from(drawGroup.children).filter(el => el.style.display !== 'none');
+        if (targets.length === 0) {
+            alert('Nothing to export!');
+            return;
+        }
+        
+        let dxfContent = '  0\nSECTION\n  2\nENTITIES\n';
+        
+        function writeDxfPolyline(points, layer, isClosed) {
+            if (points.length < 2) return;
+            
+            dxfContent += `  0\nPOLYLINE\n  8\n${layer}\n 66\n1\n 70\n${isClosed ? 1 : 0}\n`;
+            
+            let limit = points.length;
+            if (isClosed && points.length > 2) {
+                const start = points[0];
+                const end = points[points.length - 1];
+                if (Math.hypot(end.x - start.x, end.y - start.y) < 0.5) {
+                    limit = points.length - 1;
+                }
+            }
+            
+            for (let i = 0; i < limit; i++) {
+                dxfContent += `  0\nVERTEX\n  8\n${layer}\n 10\n${points[i].x.toFixed(4)}\n 20\n${(-points[i].y).toFixed(4)}\n`;
+            }
+            dxfContent += `  0\nSEQEND\n`;
+        }
+        
+        function sampleAndWriteDxfPath(d, layer, matrix) {
+            const tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            tempPath.setAttribute('d', d);
+            document.body.appendChild(tempPath);
+            
+            try {
+                const totalLen = tempPath.getTotalLength();
+                if (totalLen > 0) {
+                    const step = 2; // pixel step size
+                    let currentPolyline = [];
+                    let lastLocalPt = null;
+                    
+                    for (let dist = 0; dist <= totalLen; dist += step) {
+                      const pt = tempPath.getPointAtLength(dist);
+                      const pTrans = transformPoint(pt.x, pt.y, matrix);
+                      
+                      if (lastLocalPt) {
+                          const localDist = Math.hypot(pt.x - lastLocalPt.x, pt.y - lastLocalPt.y);
+                          if (localDist > step * 2.0) {
+                              if (currentPolyline.length > 0) {
+                                  writeDxfPolyline(currentPolyline, layer, false);
+                                  currentPolyline = [];
+                              }
+                          }
+                      }
+                      currentPolyline.push(pTrans);
+                      lastLocalPt = pt;
+                    }
+                    
+                    const endPt = tempPath.getPointAtLength(totalLen);
+                    const endTrans = transformPoint(endPt.x, endPt.y, matrix);
+                    if (currentPolyline.length > 0) {
+                        const lastRecordedLocal = lastLocalPt;
+                        if (lastRecordedLocal && Math.hypot(endPt.x - lastRecordedLocal.x, endPt.y - lastRecordedLocal.y) > 0.01) {
+                            currentPolyline.push(endTrans);
+                        }
+                        
+                        const startPtLocal = tempPath.getPointAtLength(0);
+                        const isClosed = Math.hypot(endPt.x - startPtLocal.x, endPt.y - startPtLocal.y) < 0.5;
+                        writeDxfPolyline(currentPolyline, layer, isClosed);
+                    }
+                }
+            } finally {
+                tempPath.remove();
+            }
+        }
+        
+        targets.forEach(el => {
+            const tag = el.tagName.toLowerCase();
+            const layer = sanitizeLayerName(el.getAttribute('data-name') || el.id);
+            const m = getElementMatrix(el);
+            
+            if (tag === 'line') {
+                const x1 = parseFloat(el.getAttribute('x1')) || 0;
+                const y1 = parseFloat(el.getAttribute('y1')) || 0;
+                const x2 = parseFloat(el.getAttribute('x2')) || 0;
+                const y2 = parseFloat(el.getAttribute('y2')) || 0;
+                
+                const p1 = transformPoint(x1, y1, m);
+                const p2 = transformPoint(x2, y2, m);
+                
+                dxfContent += `  0\nLINE\n  8\n${layer}\n 10\n${p1.x.toFixed(4)}\n 20\n${(-p1.y).toFixed(4)}\n 11\n${p2.x.toFixed(4)}\n 21\n${(-p2.y).toFixed(4)}\n`;
+            } 
+            else if (tag === 'rect') {
+                const x = parseFloat(el.getAttribute('x')) || 0;
+                const y = parseFloat(el.getAttribute('y')) || 0;
+                const w = parseFloat(el.getAttribute('width')) || 0;
+                const h = parseFloat(el.getAttribute('height')) || 0;
+                const rx = parseFloat(el.getAttribute('rx')) || 0;
+                const ry = parseFloat(el.getAttribute('ry')) || rx || 0;
+                
+                if (rx > 0 && ry > 0) {
+                    const d = `M ${x + rx} ${y} L ${x + w - rx} ${y} A ${rx} ${ry} 0 0 1 ${x + w} ${y + ry} L ${x + w} ${y + h - ry} A ${rx} ${ry} 0 0 1 ${x + w - rx} ${y + h} L ${x + rx} ${y + h} A ${rx} ${ry} 0 0 1 ${x} ${y + h - ry} L ${x} ${y + ry} A ${rx} ${ry} 0 0 1 ${x + rx} ${y} Z`;
+                    sampleAndWriteDxfPath(d, layer, m);
+                } else {
+                    const p1 = transformPoint(x, y, m);
+                    const p2 = transformPoint(x + w, y, m);
+                    const p3 = transformPoint(x + w, y + h, m);
+                    const p4 = transformPoint(x, y + h, m);
+                    
+                    dxfContent += `  0\nPOLYLINE\n  8\n${layer}\n 66\n1\n 70\n1\n`;
+                    dxfContent += `  0\nVERTEX\n  8\n${layer}\n 10\n${p1.x.toFixed(4)}\n 20\n${(-p1.y).toFixed(4)}\n`;
+                    dxfContent += `  0\nVERTEX\n  8\n${layer}\n 10\n${p2.x.toFixed(4)}\n 20\n${(-p2.y).toFixed(4)}\n`;
+                    dxfContent += `  0\nVERTEX\n  8\n${layer}\n 10\n${p3.x.toFixed(4)}\n 20\n${(-p3.y).toFixed(4)}\n`;
+                    dxfContent += `  0\nVERTEX\n  8\n${layer}\n 10\n${p4.x.toFixed(4)}\n 20\n${(-p4.y).toFixed(4)}\n`;
+                    dxfContent += `  0\nSEQEND\n`;
+                }
+            } 
+            else if (tag === 'circle' || tag === 'ellipse') {
+                const cx = parseFloat(el.getAttribute('cx')) || 0;
+                const cy = parseFloat(el.getAttribute('cy')) || 0;
+                const rx = parseFloat(el.getAttribute('rx')) || parseFloat(el.getAttribute('r')) || 0;
+                const ry = parseFloat(el.getAttribute('ry')) || rx || 0;
+                
+                const isPureTranslation = !m || (Math.abs(m.a - 1) < 1e-5 && Math.abs(m.b) < 1e-5 && Math.abs(m.c) < 1e-5 && Math.abs(m.d - 1) < 1e-5);
+                
+                if (rx === ry && isPureTranslation) {
+                    const cxTrans = cx + (m ? m.e : 0);
+                    const cyTrans = cy + (m ? m.f : 0);
+                    dxfContent += `  0\nCIRCLE\n  8\n${layer}\n 10\n${cxTrans.toFixed(4)}\n 20\n${(-cyTrans).toFixed(4)}\n 40\n${rx.toFixed(4)}\n`;
+                } else {
+                    dxfContent += `  0\nPOLYLINE\n  8\n${layer}\n 66\n1\n 70\n1\n`;
+                    for (let i = 0; i < 72; i++) {
+                        const theta = (i * 5 * Math.PI) / 180;
+                        const lx = cx + rx * Math.cos(theta);
+                        const ly = cy + ry * Math.sin(theta);
+                        const p = transformPoint(lx, ly, m);
+                        dxfContent += `  0\nVERTEX\n  8\n${layer}\n 10\n${p.x.toFixed(4)}\n 20\n${(-p.y).toFixed(4)}\n`;
+                    }
+                    dxfContent += `  0\nSEQEND\n`;
+                }
+            } 
+            else if (tag === 'polyline' || tag === 'polygon') {
+                const pointsAttr = el.getAttribute('points');
+                if (pointsAttr) {
+                    const coords = pointsAttr.trim().split(/[,\s]+/).map(Number).filter(n => !isNaN(n));
+                    const isClosed = tag === 'polygon';
+                    
+                    dxfContent += `  0\nPOLYLINE\n  8\n${layer}\n 66\n1\n 70\n${isClosed ? 1 : 0}\n`;
+                    for (let i = 0; i < coords.length; i += 2) {
+                        if (i + 1 < coords.length) {
+                            const p = transformPoint(coords[i], coords[i+1], m);
+                            dxfContent += `  0\nVERTEX\n  8\n${layer}\n 10\n${p.x.toFixed(4)}\n 20\n${(-p.y).toFixed(4)}\n`;
+                        }
+                    }
+                    dxfContent += `  0\nSEQEND\n`;
+                }
+            } 
+            else if (tag === 'path') {
+                const dAttr = el.getAttribute('d');
+                if (dAttr) {
+                    sampleAndWriteDxfPath(dAttr, layer, m);
+                }
+            }
+            else if (tag === 'text') {
+                const textStr = el.textContent || '';
+                if (textStr.trim() !== '') {
+                    const x = parseFloat(el.getAttribute('x')) || 0;
+                    const y = parseFloat(el.getAttribute('y')) || 0;
+                    const fontSize = parseFloat(el.getAttribute('font-size')) || 12;
+                    const p = transformPoint(x, y, m);
+                    
+                    let angle = 0;
+                    if (m) {
+                        angle = -(Math.atan2(m.b, m.a) * 180 / Math.PI);
+                    }
+                    
+                    dxfContent += `  0\nTEXT\n  8\n${layer}\n 10\n${p.x.toFixed(4)}\n 20\n${(-p.y).toFixed(4)}\n 40\n${fontSize.toFixed(4)}\n 1\n${textStr}\n`;
+                    if (Math.abs(angle) > 0.01) {
+                        dxfContent += ` 50\n${angle.toFixed(4)}\n`;
+                    }
+                }
+            }
+        });
+        
+        dxfContent += '  0\nENDSEC\n  0\nEOF\n';
+        
+        const blob = new Blob([dxfContent], { type: 'image/vnd.dxf;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = 'svgtracer_drawing.dxf';
+        link.href = url;
+        link.click();
+        URL.revokeObjectURL(url);
+    }
+
     // IMPORT SVG XML PARSER
     function importSVGMarkup(svgMarkup) {
         const parser = new DOMParser();
@@ -2696,6 +3040,12 @@
             canvasViewport.classList.add('tool-bucket-active');
         } else {
             canvasViewport.classList.remove('tool-bucket-active');
+        }
+        
+        if (activeTool === 'rotate') {
+            canvasViewport.classList.add('tool-rotate-active');
+        } else {
+            canvasViewport.classList.remove('tool-rotate-active');
         }
         
         if (activeTool === 'trace') {
@@ -2874,7 +3224,11 @@
                 return;
             }
             
-            if (activeTool === 'select') {
+            if (activeTool === 'select' || activeTool === 'rotate') {
+                e.preventDefault();
+                if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+                    document.activeElement.blur();
+                }
                 const target = e.target;
                 
                 if (target && target !== gridBackplate && drawGroup.contains(target)) {
@@ -2887,12 +3241,27 @@
                         selectElement(target);
                     }
                     
-                    dragMode = 'move';
+                    if (activeTool === 'rotate') {
+                        dragMode = 'rotate';
+                    } else {
+                        dragMode = 'move';
+                    }
                     dragStart = { x: coords.rawX, y: coords.rawY };
+                    
+                    const bounds = getCollectiveBounds(selection.elements);
+                    rotationCenter = {
+                        x: bounds.x + bounds.w / 2,
+                        y: bounds.y + bounds.h / 2
+                    };
+                    initialMouseAngle = Math.atan2(coords.rawY - rotationCenter.y, coords.rawX - rotationCenter.x);
                     
                     initialElementCoordsList = selection.elements.map(el => {
                         const tag = el.tagName.toLowerCase();
                         const info = { el, tag };
+                        const rot = getElementRotation(el);
+                        info.rotAngle = rot.angle;
+                        info.rotCx = rot.cx;
+                        info.rotCy = rot.cy;
                         if (tag === 'rect') {
                             info.x = parseFloat(el.getAttribute('x')) || 0;
                             info.y = parseFloat(el.getAttribute('y')) || 0;
@@ -2915,24 +3284,65 @@
                         return info;
                     });
                 } else {
-                    selectElement(null);
-                    
-                    // Clicked on background/empty space in Select mode: start marquee selection!
-                    dragMode = 'marquee';
-                    dragStart = { x: coords.rawX, y: coords.rawY };
-                    clickedElement = null;
-                    
-                    const marquee = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-                    marquee.id = 'marqueeRect';
-                    marquee.setAttribute('stroke', '#dfb75c');
-                    marquee.setAttribute('stroke-width', 1 / zoom);
-                    marquee.setAttribute('stroke-dasharray', `${4/zoom},${4/zoom}`);
-                    marquee.setAttribute('fill', 'rgba(223, 183, 92, 0.12)');
-                    marquee.setAttribute('x', coords.rawX);
-                    marquee.setAttribute('y', coords.rawY);
-                    marquee.setAttribute('width', 0);
-                    marquee.setAttribute('height', 0);
-                    previewGroup.appendChild(marquee);
+                    if (activeTool === 'rotate' && selection.elements.length > 0) {
+                        dragMode = 'rotate';
+                        dragStart = { x: coords.rawX, y: coords.rawY };
+                        const bounds = getCollectiveBounds(selection.elements);
+                        rotationCenter = {
+                            x: bounds.x + bounds.w / 2,
+                            y: bounds.y + bounds.h / 2
+                        };
+                        initialMouseAngle = Math.atan2(coords.rawY - rotationCenter.y, coords.rawX - rotationCenter.x);
+                        
+                        initialElementCoordsList = selection.elements.map(el => {
+                            const tag = el.tagName.toLowerCase();
+                            const info = { el, tag };
+                            const rot = getElementRotation(el);
+                            info.rotAngle = rot.angle;
+                            info.rotCx = rot.cx;
+                            info.rotCy = rot.cy;
+                            if (tag === 'rect') {
+                                info.x = parseFloat(el.getAttribute('x')) || 0;
+                                info.y = parseFloat(el.getAttribute('y')) || 0;
+                            } else if (tag === 'ellipse') {
+                                info.cx = parseFloat(el.getAttribute('cx')) || 0;
+                                info.cy = parseFloat(el.getAttribute('cy')) || 0;
+                            } else if (tag === 'line') {
+                                info.x1 = parseFloat(el.getAttribute('x1')) || 0;
+                                info.y1 = parseFloat(el.getAttribute('y1')) || 0;
+                                info.x2 = parseFloat(el.getAttribute('x2')) || 0;
+                                info.y2 = parseFloat(el.getAttribute('y2')) || 0;
+                            } else if (tag === 'polygon' || tag === 'polyline') {
+                                info.points = el.getAttribute('points') || '';
+                            } else if (tag === 'path') {
+                                info.d = el.getAttribute('d') || '';
+                            } else if (tag === 'text') {
+                                info.x = parseFloat(el.getAttribute('x')) || 0;
+                                info.y = parseFloat(el.getAttribute('y')) || 0;
+                            }
+                            return info;
+                        });
+                    } else {
+                        selectElement(null);
+                        
+                        if (activeTool === 'select') {
+                            dragMode = 'marquee';
+                            dragStart = { x: coords.rawX, y: coords.rawY };
+                            clickedElement = null;
+                            
+                            const marquee = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                            marquee.id = 'marqueeRect';
+                            marquee.setAttribute('stroke', '#dfb75c');
+                            marquee.setAttribute('stroke-width', 1 / zoom);
+                            marquee.setAttribute('stroke-dasharray', `${4/zoom},${4/zoom}`);
+                            marquee.setAttribute('fill', 'rgba(223, 183, 92, 0.12)');
+                            marquee.setAttribute('x', coords.rawX);
+                            marquee.setAttribute('y', coords.rawY);
+                            marquee.setAttribute('width', 0);
+                            marquee.setAttribute('height', 0);
+                            previewGroup.appendChild(marquee);
+                        }
+                    }
                 }
             } else {
                 // Drawing basic elements
@@ -3081,6 +3491,10 @@
                             tspan.setAttribute('x', newX);
                         });
                     }
+                    
+                    if (info.rotAngle !== 0) {
+                        setElementRotation(el, info.rotAngle, info.rotCx + snapDx, info.rotCy + snapDy);
+                    }
                 });
                 
                 updateTransformer();
@@ -3099,24 +3513,40 @@
                     snapDy = Math.round(dy / gridSize) * gridSize;
                 }
                 
+                let useDx = snapDx;
+                let useDy = snapDy;
+                
+                let isSingleRotated = false;
+                let rotAngle = 0;
+                if (selection.elements.length === 1) {
+                    const rot = getElementRotation(selection.active);
+                    if (rot.angle !== 0) {
+                        isSingleRotated = true;
+                        rotAngle = rot.angle;
+                        const rad = rotAngle * Math.PI / 180;
+                        useDx = snapDx * Math.cos(-rad) - snapDy * Math.sin(-rad);
+                        useDy = snapDx * Math.sin(-rad) + snapDy * Math.cos(-rad);
+                    }
+                }
+                
                 let newX = initialBox.x;
                 let newY = initialBox.y;
                 let newW = initialBox.w;
                 let newH = initialBox.h;
                 
-                if (resizeHandle.includes('e')) newW = Math.max(5, initialBox.w + snapDx);
-                if (resizeHandle.includes('s')) newH = Math.max(5, initialBox.h + snapDy);
+                if (resizeHandle.includes('e')) newW = Math.max(5, initialBox.w + useDx);
+                if (resizeHandle.includes('s')) newH = Math.max(5, initialBox.h + useDy);
                 if (resizeHandle.includes('w')) {
-                    const targetW = initialBox.w - snapDx;
+                    const targetW = initialBox.w - useDx;
                     if (targetW >= 5) {
-                        newX = initialBox.x + snapDx;
+                        newX = initialBox.x + useDx;
                         newW = targetW;
                     }
                 }
                 if (resizeHandle.includes('n')) {
-                    const targetH = initialBox.h - snapDy;
+                    const targetH = initialBox.h - useDy;
                     if (targetH >= 5) {
-                        newY = initialBox.y + snapDy;
+                        newY = initialBox.y + useDy;
                         newH = targetH;
                     }
                 }
@@ -3174,10 +3604,92 @@
                             tspan.setAttribute('x', newX);
                         });
                     }
+                    
+                    if (info.rotAngle !== 0) {
+                        const newRotCx = newBox.x + ((info.rotCx - initialBox.x) * sX);
+                        const newRotCy = newBox.y + ((info.rotCy - initialBox.y) * sY);
+                        setElementRotation(el, info.rotAngle, newRotCx, newRotCy);
+                    }
+                });
+                
+                if (isSingleRotated) {
+                    const newRotCx = newBox.x + newBox.w / 2;
+                    const newRotCy = newBox.y + newBox.h / 2;
+                    setElementRotation(selection.active, rotAngle, newRotCx, newRotCy);
+                }
+                
+                updateTransformer();
+                populateDimensionInputs();
+                return;
+            }
+            
+            if (dragMode === 'rotate' && selection.elements.length > 0) {
+                const currentAngle = Math.atan2(coords.rawY - rotationCenter.y, coords.rawX - rotationCenter.x);
+                let deltaAngleRad = currentAngle - initialMouseAngle;
+                let deltaAngleDeg = deltaAngleRad * 180 / Math.PI;
+                
+                if (e.shiftKey) {
+                    deltaAngleDeg = Math.round(deltaAngleDeg / 15) * 15;
+                }
+                
+                initialElementCoordsList.forEach(info => {
+                    const el = info.el;
+                    const tag = info.tag;
+                    
+                    const rad = deltaAngleDeg * Math.PI / 180;
+                    const dx_rot = (info.rotCx - rotationCenter.x) * Math.cos(rad) - (info.rotCy - rotationCenter.y) * Math.sin(rad);
+                    const dy_rot = (info.rotCx - rotationCenter.x) * Math.sin(rad) + (info.rotCy - rotationCenter.y) * Math.cos(rad);
+                    const newCx = rotationCenter.x + dx_rot;
+                    const newCy = rotationCenter.y + dy_rot;
+                    
+                    const dx = newCx - info.rotCx;
+                    const dy = newCy - info.rotCy;
+                    
+                    if (tag === 'rect') {
+                        el.setAttribute('x', info.x + dx);
+                        el.setAttribute('y', info.y + dy);
+                    } else if (tag === 'ellipse') {
+                        el.setAttribute('cx', info.cx + dx);
+                        el.setAttribute('cy', info.cy + dy);
+                    } else if (tag === 'line') {
+                        el.setAttribute('x1', info.x1 + dx);
+                        el.setAttribute('y1', info.y1 + dy);
+                        el.setAttribute('x2', info.x2 + dx);
+                        el.setAttribute('y2', info.y2 + dy);
+                    } else if (tag === 'polygon' || tag === 'polyline') {
+                        const pairs = info.points.trim().split(/[\s,]+/);
+                        const newPoints = [];
+                        for (let i = 0; i < pairs.length; i += 2) {
+                            if (i + 1 >= pairs.length) break;
+                            newPoints.push(`${parseFloat(pairs[i]) + dx},${parseFloat(pairs[i+1]) + dy}`);
+                        }
+                        el.setAttribute('points', newPoints.join(" "));
+                    } else if (tag === 'path') {
+                        el.setAttribute('d', movePath(info.d, dx, dy));
+                    } else if (tag === 'text') {
+                        const newX = info.x + dx;
+                        el.setAttribute('x', newX);
+                        el.setAttribute('y', info.y + dy);
+                        el.querySelectorAll('tspan').forEach(tspan => {
+                            tspan.setAttribute('x', newX);
+                        });
+                    }
+                    
+                    const newAngle = (info.rotAngle + deltaAngleDeg) % 360;
+                    setElementRotation(el, newAngle, newCx, newCy);
                 });
                 
                 updateTransformer();
                 populateDimensionInputs();
+                
+                // Sync properties angle input
+                if (selection.elements.length === 1) {
+                    const rot = getElementRotation(selection.active);
+                    const valRotationAngle = document.getElementById('valRotationAngle');
+                    if (valRotationAngle) {
+                        valRotationAngle.value = Math.round(rot.angle);
+                    }
+                }
                 return;
             }
             
@@ -3305,7 +3817,7 @@
                 return;
             }
             
-            if (dragMode === 'move' || dragMode === 'resize') {
+            if (dragMode === 'move' || dragMode === 'resize' || dragMode === 'rotate') {
                 if (dragMode === 'move') {
                     const coords = getCanvasCoords(e);
                     const dist = Math.hypot(coords.rawX - dragStart.x, coords.rawY - dragStart.y);
@@ -3422,6 +3934,7 @@
         });
         
         btnExportSVG.addEventListener('click', exportSVG);
+        btnExportDXF.addEventListener('click', exportDXF);
         btnCopySVG.addEventListener('click', copySVGCode);
         btnCopyOffice.addEventListener('click', () => copyAsOfficeVector(false));
         if (btnCopySelectionOffice) {
@@ -3498,6 +4011,65 @@
             }
         });
         valRx.addEventListener('change', () => saveState());
+
+        // Rotation Inspector Events
+        function updateSelectionRotation(angle) {
+            if (selection.elements.length === 0) return;
+            selection.elements.forEach(el => {
+                const rot = getElementRotation(el);
+                setElementRotation(el, angle, rot.cx, rot.cy);
+            });
+            updateTransformer();
+        }
+
+        if (valRotationAngle) {
+            valRotationAngle.addEventListener('input', () => {
+                const val = parseFloat(valRotationAngle.value) || 0;
+                updateSelectionRotation(val);
+            });
+            valRotationAngle.addEventListener('change', () => {
+                saveState();
+            });
+        }
+
+        if (btnRotateCCW) {
+            btnRotateCCW.addEventListener('click', () => {
+                selection.elements.forEach(el => {
+                    const rot = getElementRotation(el);
+                    let newAngle = (rot.angle - 90) % 360;
+                    if (newAngle < 0) newAngle += 360;
+                    setElementRotation(el, newAngle, rot.cx, rot.cy);
+                });
+                updateTransformer();
+                updateInspectorUI();
+                saveState();
+            });
+        }
+
+        if (btnRotateCW) {
+            btnRotateCW.addEventListener('click', () => {
+                selection.elements.forEach(el => {
+                    const rot = getElementRotation(el);
+                    let newAngle = (rot.angle + 90) % 360;
+                    if (newAngle < 0) newAngle += 360;
+                    setElementRotation(el, newAngle, rot.cx, rot.cy);
+                });
+                updateTransformer();
+                updateInspectorUI();
+                saveState();
+            });
+        }
+
+        if (btnRotateReset) {
+            btnRotateReset.addEventListener('click', () => {
+                selection.elements.forEach(el => {
+                    setElementRotation(el, 0);
+                });
+                updateTransformer();
+                updateInspectorUI();
+                saveState();
+            });
+        }
 
         // 9. Fill Type Actions
         const fillBtns = [btnFillNone, btnFillColor, btnFillGradient];
@@ -3745,6 +4317,7 @@
             if (!isCtrl) {
                 if (e.key.toLowerCase() === 'v') triggerToolBtn('select');
                 else if (e.key.toLowerCase() === 'h') triggerToolBtn('pan');
+                else if (e.key.toLowerCase() === 'e') triggerToolBtn('rotate');
                 else if (e.key.toLowerCase() === 'p') triggerToolBtn('pen');
                 else if (e.key.toLowerCase() === 'l') triggerToolBtn('line');
                 else if (e.key.toLowerCase() === 'r') triggerToolBtn('rect');

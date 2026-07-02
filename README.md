@@ -21,3 +21,5 @@ A web-based vector drawing editor that lets you draw, trace, modify, and export 
 ## Getting Started
 
 Simply open `SVGTracer.html` directly in any web browser.
+
+Agent must never test directly, must ask the user to test and provide feedback.
