@@ -1,136 +1,98 @@
-# FlowTracer — SVG Vector Editor
+﻿# SVGTracer
 
-A browser-based vector illustration tool for drawing, tracing, and exporting SVG artwork — no installation required.
+**This project was 100% vibe coded**
 
-*This project was 100% vibe coded.*
+A browser-based vector illustration tool built on a live SVG canvas. Draw, trace, and export clean vector graphics without any install or sign-up required.
 
----
+## Overview
+
+SVGTracer gives you a full drawing workspace in a single HTML file. Open `SVGTracer.html` in any modern browser and start drawing immediately. Everything runs locally — no server, no build step.
 
 ## Features
 
 ### Drawing Tools
 
-| Tool | Key | Description |
-|---|---|---|
-| Select / Move | `V` | Select, move, resize, and multi-select elements |
-| Pan Canvas | `H` or `Space` | Pan the infinite canvas viewport |
-| Rotate | `E` | Freehand rotation around an element's center |
-| Pen / Path | `P` | Place anchor points to build open or closed paths |
-| Smooth Trace | `S` | Click-to-place point tracing with Catmull-Rom path smoothing |
+| Tool | Shortcut | Description |
+|------|----------|-------------|
+| Select / Move / Resize | `V` | Click to select, drag handles to resize |
+| Pan | `H` / Hold `Space` | Pan the infinite canvas |
+| Rotate | `E` | Free-rotate the selected element |
+| Pen / Path | `P` | Click-to-place anchor points, double-click to close |
+| Smooth Trace | `S` | Freehand tracing with automatic Bezier smoothing |
 | Line Segment | `L` | Draw straight line segments |
-| Rectangle | `R` | Draw rectangles with adjustable corner radius |
-| Ellipse / Circle | `O` | Draw ellipses and perfect circles |
-| Polygon | `Y` | Draw closed straight-segment polygons |
-| Bucket Fill | `G` | Detect and fill enclosed regions formed by intersecting shapes |
-| Text Box | `T` | Place multiline text with font and size controls |
+| Rectangle | `R` | Draw rectangles (hold `Shift` to constrain to square) |
+| Ellipse / Circle | `O` | Draw ellipses (hold `Shift` for perfect circles) |
+| Polygon | `Y` | Multi-sided polygon tool |
+| Bucket Fill | `G` | Apply fill to the selected shape |
+| Text Box | `T` | Place editable text elements |
 
 ### Canvas & Workspace
 
-- **Infinite grid canvas** with zoom (`Ctrl +/-`, scroll wheel) and pan
-- **Grid snapping** — configurable snap sizes: 5, 10, 20, 50, or 100 px
-- **Canvas theme toggle** — switch between dark and light canvas backgrounds
-- **Live cursor coordinates** shown in the status bar
-- **Snap indicator** in the status bar
+- **Infinite grid canvas** — pan and zoom freely with scroll or pinch
+- **Snap to grid** — configurable snap sizes: 5 / 10 / 20 / 50 / 100 px
+- **Canvas theme toggle** — switch the canvas background between dark and light
+- **Symmetry line** — draw mirror-symmetrical paths across a draggable axis
+- **Trace image overlay** — upload a reference image, adjust its opacity (0–100%) and scale, and draw directly on top of it
 
-### Symmetry
+### Element Inspector (Right Panel)
 
-- Enable a **symmetry line** to mirror strokes in real time across any axis
-- Place the two symmetry endpoints anywhere on the canvas
-- Works with all path-based drawing tools (Pen, Smooth Trace)
+- **Dimensions** — X, Y, Width, Height with live numeric inputs
+- **Rotation** — numeric angle input plus ±90° and reset buttons
+- **Fill** — None / Solid color / Preset gradient (Neon Ice, Sunset Glow, Sol Forest, Cyberpunk Emerald, Monochrome)
+- **Stroke** — None / Solid / Dashed / Dotted, color picker, width, and line-join style (Miter / Round / Bevel)
+- **Opacity** — per-element opacity slider
+- **Layer order** — Send to Back, Bring to Front, and step-up/step-down controls
+- **Duplicate & Delete** shortcuts in the inspector
+- **Text properties** — font family (Outfit, Helvetica, Fira Code, Arial, Times New Roman) and font size
+- **Color history** — recent fill and stroke colors shown as swatches
+- **"Copy Selection for Office"** — copies the selected element as vector metadata compatible with Microsoft Office / LibreOffice
 
-### Trace Image Overlay
+### Layers Panel
 
-Load a reference image behind the canvas to trace over:
+- Full layer list showing every element on the canvas
+- Click a layer row to select the corresponding element
+- Reorder layers directly from the panel
 
-- Upload any raster image (PNG, JPG, etc.)
-- Control **opacity** (0–100%) to see through to your vectors
-- **Scale** (10–400%) and **X/Y offset** positioning
-- Toggle visibility without removing the image
+### Import & Export
 
-### Style Inspector
+| Action | Output |
+|--------|--------|
+| Import SVG | Paste SVG XML markup or upload an `.svg` file to place elements on the canvas |
+| Export SVG File | Download a clean, minimal `.svg` file |
+| Export DXF File | Download a CAD-compatible `.dxf` vector |
+| Export PNG | Rasterize the canvas to a high-resolution `.png` |
+| Copy SVG Code | Copy the raw SVG XML to the clipboard |
+| Copy for Office Suite | Copy as vector graphics metadata for paste into Office apps |
+| Export with light background | Checkbox option that overrides the canvas theme on export |
 
-- **Fill** — None, solid color (with hex input + color history), or gradient presets:
-  - Neon Ice, Sunset Glow, Sol Forest, Cyberpunk Emerald, Monochrome
-- **Stroke** — None, solid, dashed, or dotted; custom color, width, and line-join style (miter / round / bevel)
-- **Opacity** slider per element
-- **Corner radius** slider for rectangles
-- **Rotation** — numeric angle input plus quick ±90° and reset buttons
+### Keyboard Shortcuts
 
-### Text
-
-- Inline editing directly on the canvas
-- Font family: Outfit, Helvetica, Fira Code, Arial, Times New Roman
-- Font size control with increment / decrement buttons
-
-### Layers
-
-- Full layer list showing all canvas elements
-- Reorder: Move Up, Move Down, Send to Back, Bring to Front
-- Select layers directly from the Layers panel
-
-### Edit Operations
-
-- **Undo / Redo** — `Ctrl+Z` / `Ctrl+Y`
-- **Duplicate** selected element
-- **Delete** selected element — `Del` or `Backspace`
-- **Nudge** elements with arrow keys
-- **Copy / Paste** — `Ctrl+C` / `Ctrl+V`
-- **Marquee selection** — drag-select multiple elements
-- **Multi-select** with `Shift+click`
-- **Constrain proportions** while drawing — hold `Shift`
-
-### Import / Export
-
-| Action | Description |
-|---|---|
-| **Import SVG File** | Upload a `.svg` file to import its elements onto the canvas |
-| **Paste SVG Markup** | Paste raw SVG XML directly in the import modal |
-| **Export SVG File** | Download a clean `.svg` vector file |
-| **Export DXF File** | Download a CAD-compatible `.dxf` vector file |
-| **Export PNG** | Rasterized high-resolution image |
-| **Copy SVG Code** | Copy raw SVG XML to the clipboard |
-| **Copy for Office Suite** | Copy vectors as Office-compatible metadata for Word / PowerPoint |
-
-All export modes support an optional **light background** setting.
-
----
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|---|---|
-| `V` | Select tool |
-| `H` | Pan tool |
-| `E` | Rotate tool |
-| `P` | Pen tool |
-| `S` | Smooth Trace tool |
-| `L` | Line tool |
-| `R` | Rectangle tool |
-| `O` | Ellipse tool |
-| `Y` | Polygon tool |
-| `G` | Bucket Fill tool |
-| `T` | Text tool |
+| Keys | Action |
+|------|--------|
 | `Ctrl+Z` | Undo |
 | `Ctrl+Y` | Redo |
-| `Ctrl+C` | Copy |
-| `Ctrl+V` | Paste |
-| `Del` / `Backspace` | Delete selected |
-| `Arrow Keys` | Nudge selected element |
-| `Shift` | Constrain shape proportions while drawing |
-| `Esc` | Cancel active path / deselect |
-| `Space` (hold) | Temporary pan mode |
-
----
+| `Delete` | Delete selected shape |
+| `Arrow Keys` | Nudge selected shape by 1 px |
+| `Shift` | Constrain proportions while drawing |
+| `Esc` | Cancel active path or tool |
+| `Space` (hold) | Temporarily activate Pan tool |
 
 ## Getting Started
 
-Open `SVGTracer.html` directly in any modern web browser — no build step or server required.
+1. Open `SVGTracer.html` in a modern browser (Chrome, Edge, Firefox, Safari).
+2. Pick a tool from the left sidebar and start drawing on the grid.
+3. Click any element to open its properties in the right inspector.
+4. Use **Export** in the top-right to download your work.
+
+## File Structure
 
 ```
 SVGTracer/
-├── SVGTracer.html   # Application shell
-├── app.js           # Core drawing engine
-└── styles.css       # Visual theme
+├── SVGTracer.html   # Application entry point (open this)
+├── app.js           # All drawing logic, tool handling, import/export engine
+└── styles.css       # Dark-mode UI, grid, and inspector styles
 ```
 
-Agent must never test directly, must ask the user to test and provide feedback.
+## Browser Compatibility
+
+Requires a modern browser with SVG and ES6+ support. No external dependencies are loaded at runtime — fonts and icons are fetched from Google Fonts and Cloudflare CDN on first load.
