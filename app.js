@@ -77,10 +77,10 @@
     let rotationCenter = { x: 0, y: 0 };
     let initialMouseAngle = 0;
 
-    // Default styles for new shapes / selections
+    // Default styles for new shapes / selections (dark-mode defaults)
     let defaultStyle = {
         fillType: 'none', // none, color, gradient
-        fill: '#ffffff',
+        fill: 'none',
         fillGrad: 'grad-cyan-blue',
         strokeEnabled: true,
         stroke: '#ffffff',
@@ -88,7 +88,7 @@
         strokeDash: 'solid', // solid, dashed, dotted
         strokeJoin: 'miter',
         opacity: 1.0,
-        fontFamily: 'Outfit',
+        fontFamily: 'VT323',
         fontSize: 20,
         textVal: 'Text'
     };
@@ -645,14 +645,15 @@
             });
         }
         
+        // Default to dark mode — only switch to light if explicitly saved as 'true'
         const canvasLight = localStorage.getItem('svgtracer_canvas_light') === 'true';
         if (canvasLight) {
             document.body.classList.add('canvas-light-mode');
-            defaultStyle.fill = '#ffffff';
+            defaultStyle.fill   = 'none';
             defaultStyle.stroke = '#000000';
         } else {
             document.body.classList.remove('canvas-light-mode');
-            defaultStyle.fill = '#ffffff';
+            defaultStyle.fill   = 'none';
             defaultStyle.stroke = '#ffffff';
         }
         
@@ -1209,18 +1210,47 @@
             });
         }
         
-        // 3. Set default styles based on light/dark mode
+        // 3. Update default styles based on current mode
         if (document.body.classList.contains('canvas-light-mode')) {
-            defaultStyle.fill = '#ffffff';
+            defaultStyle.fill   = 'none';
             defaultStyle.stroke = '#000000';
         } else {
-            defaultStyle.fill = '#ffffff';
+            defaultStyle.fill   = 'none';
             defaultStyle.stroke = '#ffffff';
         }
+        
+        // 4. Invert palette swatches and active color pickers
+        invertPaletteColors();
         
         // Update selection settings UI and save the state
         updateInspectorUI();
         saveState();
+    }
+
+    function invertPaletteColors() {
+        // Invert stroke history swatches
+        strokeColorHistoryList = strokeColorHistoryList.map(c => invertColor(c));
+        renderColorHistory();
+        saveColorHistory();
+
+        // Invert fill history swatches
+        fillColorHistoryList = fillColorHistoryList.map(c => invertColor(c));
+        renderFillColorHistory();
+        saveFillColorHistory();
+
+        // Invert the active stroke color picker value
+        if (valStrokeColor && valStrokeColor.value) {
+            const inv = invertColor(valStrokeColor.value);
+            valStrokeColor.value = inv;
+            if (valStrokeHex) valStrokeHex.value = inv;
+        }
+
+        // Invert the active fill color picker value (only when fill type is 'color')
+        if (valFillColor && valFillColor.value) {
+            const inv = invertColor(valFillColor.value);
+            valFillColor.value = inv;
+            if (valFillHex) valFillHex.value = inv;
+        }
     }
 
     function getElementRotation(el) {
