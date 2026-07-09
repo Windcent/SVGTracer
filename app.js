@@ -23,6 +23,15 @@
     let symmetryPoints = [{x: 0, y: -150}, {x: 0, y: 150}]; // Initial vertical symmetry line centered
     let placingSymmetryPoints = 0; // 0: no, 1: placing S0, 2: placing S1
 
+    // Guided Trace State
+    let isGuidedTracing = false;
+    let lastGuidedPoint = null;
+    let guidedTraceRadius = 20;
+    let guidedTraceInterval = 15;
+    let traceImageCanvas = null;
+    let traceImageCtx = null;
+    let traceImageData = null;
+
     let selectedEl = null;
     const selection = {
         elements: [],
@@ -51,6 +60,7 @@
     let isDrawing = false;
     let activeDrawEl = null;
     let drawingPoints = []; // For pen / polygon
+    let lastCanvasMousePos = { x: 0, y: 0 };
     
     // Undo / Redo stacks
     let historyStack = [];
@@ -123,6 +133,14 @@
     const traceSmoothingField = document.getElementById('traceSmoothingField');
     const valTraceSmoothing = document.getElementById('valTraceSmoothing');
     const lblTraceSmoothing = document.getElementById('lblTraceSmoothing');
+
+    const guidedTraceGroup = document.getElementById('guidedTraceGroup');
+    const guidedTraceSettings = document.getElementById('guidedTraceSettings');
+    const valGuidedTraceRadius = document.getElementById('valGuidedTraceRadius');
+    const lblGuidedTraceRadius = document.getElementById('lblGuidedTraceRadius');
+    const valGuidedTraceInterval = document.getElementById('valGuidedTraceInterval');
+    const lblGuidedTraceInterval = document.getElementById('lblGuidedTraceInterval');
+    const workspaceSettingsSection = document.getElementById('workspaceSettingsSection');
 
     // UI Inputs & Buttons
     const btnUndo = document.getElementById('btnUndo');
@@ -1563,18 +1581,34 @@
                 imageGroup.appendChild(img);
                 traceImageEl = img;
                 
+                // Create offscreen canvas to sample pixel values
+                traceImageCanvas = document.createElement('canvas');
+                traceImageCanvas.width = w;
+                traceImageCanvas.height = h;
+                traceImageCtx = traceImageCanvas.getContext('2d');
+                traceImageCtx.drawImage(tempImg, 0, 0);
+                try {
+                    traceImageData = traceImageCtx.getImageData(0, 0, w, h);
+                } catch(err) {
+                    console.error("Failed to read image pixel data (CORS issue?):", err);
+                    traceImageData = null;
+                }
+                
                 traceImageOpacity = 0.5;
                 traceImageScale = 1.0;
-                traceImageX = 0;
-                traceImageY = 0;
+                
+                const rect = canvasViewport.getBoundingClientRect();
+                traceImageX = Math.round((rect.width / 2 - panX) / zoom);
+                traceImageY = Math.round((rect.height / 2 - panY) / zoom);
+                
                 showTraceImage = true;
                 
                 valTraceImageOpacity.value = 50;
                 lblTraceImageOpacity.innerText = '50%';
                 valTraceImageScale.value = 100;
                 lblTraceImageScale.innerText = '100%';
-                valTraceImageX.value = 0;
-                valTraceImageY.value = 0;
+                valTraceImageX.value = traceImageX;
+                valTraceImageY.value = traceImageY;
                 chkShowTraceImage.checked = true;
                 
                 traceImageControls.style.display = 'flex';
@@ -1591,6 +1625,178 @@
         traceImageEl = null;
         traceImageControls.style.display = 'none';
         traceImageFileInput.value = '';
+        traceImageCanvas = null;
+        traceImageCtx = null;
+        traceImageData = null;
+    }
+
+    // GUIDED TRACE SNAPPING & PREVIEW HANDLERS
+    function snapToDarkest(mx, my) {
+        if (!traceImageData) {
+            return { x: mx, y: my };
+        }
+        
+        const w = traceImageData.width;
+        const h = traceImageData.height;
+        
+        // Convert canvas coordinates to image pixels
+        const iu = (mx - traceImageX) / traceImageScale + w / 2;
+        const iv = (my - traceImageY) / traceImageScale + h / 2;
+        
+        // Search radius in image pixels, scaled with zoom
+        const rCanvas = guidedTraceRadius / zoom;
+        const ir = Math.min(40, Math.max(3, Math.round(rCanvas / traceImageScale)));
+        
+        const uMin = Math.max(0, Math.floor(iu - ir));
+        const uMax = Math.min(w - 1, Math.ceil(iu + ir));
+        const vMin = Math.max(0, Math.floor(iv - ir));
+        const vMax = Math.min(h - 1, Math.ceil(iv + ir));
+        
+        let minBrightness = 255;
+        let foundAny = false;
+        
+        // Pass 1: find minimum brightness within the search radius
+        for (let v = vMin; v <= vMax; v++) {
+            for (let u = uMin; u <= uMax; u++) {
+                const du = u - iu;
+                const dv = v - iv;
+                if (du * du + dv * dv > ir * ir) continue;
+                
+                const idx = (v * w + u) * 4;
+                const r = traceImageData.data[idx];
+                const g = traceImageData.data[idx + 1];
+                const b = traceImageData.data[idx + 2];
+                const a = traceImageData.data[idx + 3];
+                
+                // Treat transparent pixels as white
+                const brightness = a < 50 ? 255 : (0.299 * r + 0.587 * g + 0.114 * b);
+                if (brightness < minBrightness) {
+                    minBrightness = brightness;
+                }
+                foundAny = true;
+            }
+        }
+        
+        if (!foundAny || minBrightness > 240) {
+            // No dark pixel/image region found, return original mouse pos
+            return { x: mx, y: my };
+        }
+        
+        // Pass 2: calculate centroid of the darkest area
+        let sumU = 0;
+        let sumV = 0;
+        let sumW = 0;
+        
+        // Pixels must be within this threshold of the minimum brightness to be considered "dark area"
+        const threshold = Math.min(240, minBrightness + 25);
+        
+        for (let v = vMin; v <= vMax; v++) {
+            for (let u = uMin; u <= uMax; u++) {
+                const du = u - iu;
+                const dv = v - iv;
+                const distSq = du * du + dv * dv;
+                if (distSq > ir * ir) continue;
+                
+                const idx = (v * w + u) * 4;
+                const r = traceImageData.data[idx];
+                const g = traceImageData.data[idx + 1];
+                const b = traceImageData.data[idx + 2];
+                const a = traceImageData.data[idx + 3];
+                
+                const brightness = a < 50 ? 255 : (0.299 * r + 0.587 * g + 0.114 * b);
+                
+                if (brightness <= threshold) {
+                    const dist = Math.sqrt(distSq);
+                    // Weight: darker is heavier, closer to mouse is heavier
+                    const weight = (255 - brightness) * (1 - dist / (ir + 0.1));
+                    sumU += u * weight;
+                    sumV += v * weight;
+                    sumW += weight;
+                }
+            }
+        }
+        
+        if (sumW > 0) {
+            const snapU = sumU / sumW;
+            const snapV = sumV / sumW;
+            
+            // Convert back to canvas coordinates
+            const snapX = traceImageX + traceImageScale * (snapU - w / 2);
+            const snapY = traceImageY + traceImageScale * (snapV - h / 2);
+            return { x: snapX, y: snapY };
+        }
+        
+        return { x: mx, y: my };
+    }
+
+    function updateGuidedTraceCursorPreview(mx, my, sx, sy) {
+        if (!guidedTraceGroup) return;
+        guidedTraceGroup.innerHTML = '';
+        
+        if (activeTool !== 'guided-trace') return;
+        
+        // 1. Draw Search Circle
+        const rCanvas = guidedTraceRadius / zoom; // search radius in canvas space
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', mx);
+        circle.setAttribute('cy', my);
+        circle.setAttribute('r', rCanvas);
+        circle.setAttribute('stroke', '#05d590');
+        circle.setAttribute('stroke-width', 1.5 / zoom);
+        circle.setAttribute('stroke-dasharray', `${4/zoom},${2/zoom}`);
+        circle.setAttribute('fill', 'rgba(5, 213, 144, 0.05)');
+        guidedTraceGroup.appendChild(circle);
+        
+        // 2. Draw Crosshair at mouse center
+        const crosshairSize = 6 / zoom;
+        const lineH = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        lineH.setAttribute('x1', mx - crosshairSize);
+        lineH.setAttribute('y1', my);
+        lineH.setAttribute('x2', mx + crosshairSize);
+        lineH.setAttribute('y2', my);
+        lineH.setAttribute('stroke', '#05d590');
+        lineH.setAttribute('stroke-width', 1 / zoom);
+        guidedTraceGroup.appendChild(lineH);
+        
+        const lineV = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        lineV.setAttribute('x1', mx);
+        lineV.setAttribute('y1', my - crosshairSize);
+        lineV.setAttribute('x2', mx);
+        lineV.setAttribute('y2', my + crosshairSize);
+        lineV.setAttribute('stroke', '#05d590');
+        lineV.setAttribute('stroke-width', 1 / zoom);
+        guidedTraceGroup.appendChild(lineV);
+        
+        // 3. Draw Placement Interval Radius around the last placed point (while dragging)
+        if (isGuidedTracing && lastGuidedPoint) {
+            const intervalCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            intervalCircle.setAttribute('cx', lastGuidedPoint.x);
+            intervalCircle.setAttribute('cy', lastGuidedPoint.y);
+            intervalCircle.setAttribute('r', guidedTraceInterval);
+            intervalCircle.setAttribute('stroke', '#ffd700'); // Gold to match snapped dot
+            intervalCircle.setAttribute('stroke-width', 1.2 / zoom);
+            intervalCircle.setAttribute('stroke-dasharray', `${2/zoom},${3/zoom}`);
+            intervalCircle.setAttribute('fill', 'rgba(255, 215, 0, 0.015)');
+            guidedTraceGroup.appendChild(intervalCircle);
+            
+            // Draw a tiny dot at the center of the last point to anchor the visual indicator
+            const centerDot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            centerDot.setAttribute('cx', lastGuidedPoint.x);
+            centerDot.setAttribute('cy', lastGuidedPoint.y);
+            centerDot.setAttribute('r', 2.5 / zoom);
+            centerDot.setAttribute('fill', '#ffd700');
+            guidedTraceGroup.appendChild(centerDot);
+        }
+        
+        // 4. Draw Snapped Dot
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('cx', sx);
+        dot.setAttribute('cy', sy);
+        dot.setAttribute('r', 4 / zoom);
+        dot.setAttribute('fill', '#ffd700'); // Gold for snapped dot
+        dot.setAttribute('stroke', '#ffffff');
+        dot.setAttribute('stroke-width', 1 / zoom);
+        guidedTraceGroup.appendChild(dot);
     }
 
     // ARBITRARY ANGLE SYMMETRY MIRROR MATH
@@ -1614,7 +1820,7 @@
     function renderTracePreview() {
         previewGroup.innerHTML = '';
         
-        if (activeTool !== 'trace' && !symmetryEnabled) return;
+        if (activeTool !== 'trace' && activeTool !== 'guided-trace' && !symmetryEnabled) return;
         
         // 1. Draw Symmetry Line
         if (symmetryEnabled && symmetryPoints.length === 2) {
@@ -1664,7 +1870,7 @@
         }
         
         // 2. Draw Active Trace Path (Original)
-        if (activeTool === 'trace' && tracePoints.length > 0) {
+        if ((activeTool === 'trace' || activeTool === 'guided-trace') && tracePoints.length > 0) {
             const originalPathD = getPathD(tracePoints, false);
             const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             path.setAttribute('d', originalPathD);
@@ -1903,6 +2109,43 @@
         selectElement(null);
     }
 
+    function removeLastDrawingPoint() {
+        if (!isDrawing || !activeDrawEl || drawingPoints.length === 0) return;
+        
+        if (drawingPoints.length > 1) {
+            drawingPoints.pop();
+            if (activeTool === 'pen') {
+                let d = `M ${drawingPoints[0].x} ${drawingPoints[0].y}`;
+                for (let i = 1; i < drawingPoints.length; i++) {
+                    d += ` L ${drawingPoints[i].x} ${drawingPoints[i].y}`;
+                }
+                activeDrawEl.setAttribute('d', d);
+            } else if (activeTool === 'trace') {
+                const d = getSmoothPathD(drawingPoints, false);
+                activeDrawEl.setAttribute('d', d);
+            } else if (activeTool === 'polygon') {
+                const ptsStr = drawingPoints.map(p => `${p.x},${p.y}`).join(' ');
+                activeDrawEl.setAttribute('points', ptsStr);
+            }
+            updateDrawPreview(lastCanvasMousePos.x, lastCanvasMousePos.y);
+        } else {
+            cancelActiveDraw();
+        }
+    }
+
+    function removeLastTracePoint() {
+        if (tracePoints.length === 0) return;
+        tracePoints.pop();
+        if (activeTool === 'guided-trace') {
+            if (tracePoints.length > 0) {
+                lastGuidedPoint = tracePoints[tracePoints.length - 1];
+            } else {
+                lastGuidedPoint = null;
+            }
+        }
+        renderTracePreview();
+    }
+
     // VIEWPORT AND CANVAS RENDER TRANSFORMS
     function updateCanvasTransform() {
         // Apply pan/zoom via SVG transform on the worldGroup — renders at native resolution at every zoom level
@@ -2113,6 +2356,50 @@
 
     // INSPECTOR / SIDEBAR SYNCING
     function updateInspectorUI() {
+        // Handle collapsible toggling for trace mode
+        if (activeTool === 'trace' || activeTool === 'guided-trace') {
+            selectionProperties.style.display = 'flex';
+            selectionPropertiesEmpty.style.display = 'none';
+            textProperties.style.display = 'none';
+            
+            // Automatically collapse other panels
+            document.querySelectorAll('#selectionProperties .inspector-section, #workspaceSettingsSection').forEach(section => {
+                section.classList.add('collapsed');
+            });
+            
+            // Hide selection-specific sections completely in trace mode to avoid confusion
+            const dimSec = document.getElementById('selectionDimensionsSection');
+            if (dimSec) dimSec.style.display = 'none';
+            const rotSec = document.getElementById('selectionRotationSection');
+            if (rotSec) rotSec.style.display = 'none';
+            const actSec = document.getElementById('selectionActionsSection');
+            if (actSec) actSec.style.display = 'none';
+            
+            const fillSec = document.getElementById('selectionFillSection');
+            if (fillSec) fillSec.style.display = 'flex';
+            const strokeSec = document.getElementById('selectionStrokeSection');
+            if (strokeSec) strokeSec.style.display = 'flex';
+            const opSec = document.getElementById('selectionOpacitySection');
+            if (opSec) opSec.style.display = 'flex';
+            
+            if (workspaceSettingsSection) {
+                workspaceSettingsSection.style.display = 'block';
+            }
+        } else {
+            // Restore visibility and expanded states for non-trace modes
+            const dimSec = document.getElementById('selectionDimensionsSection');
+            if (dimSec) dimSec.style.display = 'flex';
+            const rotSec = document.getElementById('selectionRotationSection');
+            if (rotSec) rotSec.style.display = 'flex';
+            const actSec = document.getElementById('selectionActionsSection');
+            if (actSec) actSec.style.display = 'flex';
+            
+            document.querySelectorAll('#selectionProperties .inspector-section, #workspaceSettingsSection').forEach(section => {
+                section.classList.remove('collapsed');
+            });
+            if (workspaceSettingsSection) workspaceSettingsSection.style.display = 'block';
+        }
+        
         textProperties.style.display = 'none';
         if (selectedEl) {
             selectionProperties.style.display = 'flex';
@@ -3061,7 +3348,7 @@
         });
         
         cancelActiveDraw();
-        if (activeTool !== 'trace') {
+        if (activeTool !== 'trace' && activeTool !== 'guided-trace') {
             clearTraceSession();
         }
         updateCursor();
@@ -3078,10 +3365,17 @@
             canvasViewport.classList.remove('tool-rotate-active');
         }
         
-        if (activeTool === 'trace') {
+        if (activeTool === 'trace' || activeTool === 'guided-trace') {
             traceSessionSection.style.display = 'flex';
         } else {
             traceSessionSection.style.display = 'none';
+        }
+        
+        if (activeTool === 'guided-trace') {
+            if (guidedTraceSettings) guidedTraceSettings.style.display = 'flex';
+        } else {
+            if (guidedTraceSettings) guidedTraceSettings.style.display = 'none';
+            if (guidedTraceGroup) guidedTraceGroup.innerHTML = '';
         }
         
         renderTracePreview();
@@ -3090,6 +3384,19 @@
 
     // MAIN EVENTS CONTROLLER BINDINGS
     function setupEventHandlers() {
+        // Collapsible sidebar accordion panels
+        const inspectorSidebar = document.getElementById('inspectorSidebar');
+        if (inspectorSidebar) {
+            inspectorSidebar.addEventListener('click', (e) => {
+                const title = e.target.closest('.section-title');
+                if (!title) return;
+                const section = title.closest('.inspector-section');
+                if (section) {
+                    section.classList.toggle('collapsed');
+                }
+            });
+        }
+
         // Prevent default native browser autoscroll on middle click and prevent HTML drag start ghosting
         window.addEventListener('mousedown', (e) => {
             if (e.button === 1) {
@@ -3100,6 +3407,9 @@
             e.preventDefault();
         });
         window.addEventListener('mouseup', (e) => {
+            if (activeTool === 'guided-trace') {
+                isGuidedTracing = false;
+            }
             if (dragMode === 'pan') {
                 dragMode = 'none';
                 updateCursor();
@@ -3160,7 +3470,16 @@
                 return;
             }
             
-            if (e.button !== 0) return;
+            if (e.button !== 0) {
+                if (e.button === 2 && (activeTool === 'trace' || activeTool === 'guided-trace')) {
+                    e.preventDefault();
+                    const coords = getCanvasCoords(e);
+                    tracePoints.push({ x: coords.rawX, y: coords.rawY });
+                    lastGuidedPoint = { x: coords.rawX, y: coords.rawY };
+                    renderTracePreview();
+                }
+                return;
+            }
             const coords = getCanvasCoords(e);
 
             const target = e.target;
@@ -3212,6 +3531,30 @@
                 // Otherwise, add a new point (using raw coordinates)
                 tracePoints.push({ x: coords.rawX, y: coords.rawY });
                 renderTracePreview();
+                return;
+            }
+            
+            if (activeTool === 'guided-trace') {
+                // 1. Check if clicked on trace point handle
+                if (target && target.dataset.traceIdx !== undefined) {
+                    draggedPointIndex = parseInt(target.dataset.traceIdx, 10);
+                    return;
+                }
+                
+                // Proximity check fallback
+                const traceIdx = tracePoints.findIndex(pt => Math.hypot(coords.rawX - pt.x, coords.rawY - pt.y) < 10 / zoom);
+                if (traceIdx !== -1) {
+                    draggedPointIndex = traceIdx;
+                    return;
+                }
+                
+                // Otherwise, start guided tracing stroke
+                isGuidedTracing = true;
+                const snapped = snapToDarkest(coords.rawX, coords.rawY);
+                tracePoints.push(snapped);
+                lastGuidedPoint = snapped;
+                renderTracePreview();
+                updateGuidedTraceCursorPreview(coords.rawX, coords.rawY, snapped.x, snapped.y);
                 return;
             }
             
@@ -3421,10 +3764,11 @@
 
         canvasViewport.addEventListener('mousemove', (e) => {
             const coords = getCanvasCoords(e);
+            lastCanvasMousePos = { x: coords.x, y: coords.y };
 
             // Handle dragging symmetry points and trace points
             if (draggedPointIndex !== -1) {
-                if (draggedPointIndex >= 0 && activeTool === 'trace') {
+                if (draggedPointIndex >= 0 && (activeTool === 'trace' || activeTool === 'guided-trace')) {
                     tracePoints[draggedPointIndex] = { x: coords.rawX, y: coords.rawY };
                     renderTracePreview();
                     return;
@@ -3439,16 +3783,34 @@
                 }
             }
             
+            if (activeTool === 'guided-trace') {
+                const snapped = snapToDarkest(coords.rawX, coords.rawY);
+                updateGuidedTraceCursorPreview(coords.rawX, coords.rawY, snapped.x, snapped.y);
+                
+                if (isGuidedTracing) {
+                    const dist = Math.hypot(snapped.x - lastGuidedPoint.x, snapped.y - lastGuidedPoint.y);
+                    if (dist >= guidedTraceInterval) {
+                        tracePoints.push(snapped);
+                        lastGuidedPoint = snapped;
+                        renderTracePreview();
+                    }
+                }
+            } else {
+                if (guidedTraceGroup && guidedTraceGroup.children.length > 0) {
+                    guidedTraceGroup.innerHTML = '';
+                }
+            }
+            
             // Hover cursor styling when hovering over handles
             if (dragMode === 'none') {
                 const target = e.target;
-                if (activeTool === 'trace' && target && target.dataset.traceIdx !== undefined) {
+                if ((activeTool === 'trace' || activeTool === 'guided-trace') && target && target.dataset.traceIdx !== undefined) {
                     canvasViewport.style.cursor = 'move';
                     return;
                 } else if (symmetryEnabled && target && target.dataset.symIdx !== undefined) {
                     canvasViewport.style.cursor = 'pointer';
                     return;
-                } else if (activeTool === 'trace') {
+                } else if (activeTool === 'trace' || activeTool === 'guided-trace') {
                     canvasViewport.style.cursor = 'crosshair';
                     return;
                 }
@@ -3783,6 +4145,9 @@
         });
 
         canvasViewport.addEventListener('mouseup', (e) => {
+            if (activeTool === 'guided-trace') {
+                isGuidedTracing = false;
+            }
             if (draggedPointIndex !== -1) {
                 draggedPointIndex = -1;
                 return;
@@ -3902,6 +4267,36 @@
 
         // 3. Zoom mousewheel handler
         canvasViewport.addEventListener('wheel', (e) => {
+            if (activeTool === 'guided-trace') {
+                if (e.ctrlKey) {
+                    e.preventDefault();
+                    const step = 5;
+                    if (e.deltaY < 0) {
+                        guidedTraceInterval = Math.min(100, guidedTraceInterval + step);
+                    } else {
+                        guidedTraceInterval = Math.max(5, guidedTraceInterval - step);
+                    }
+                    if (valGuidedTraceInterval) valGuidedTraceInterval.value = guidedTraceInterval;
+                    if (lblGuidedTraceInterval) lblGuidedTraceInterval.innerText = guidedTraceInterval + 'px';
+                    return;
+                } else if (e.shiftKey) {
+                    e.preventDefault();
+                    const step = 2;
+                    if (e.deltaY < 0) {
+                        guidedTraceRadius = Math.min(50, guidedTraceRadius + step);
+                    } else {
+                        guidedTraceRadius = Math.max(5, guidedTraceRadius - step);
+                    }
+                    if (valGuidedTraceRadius) valGuidedTraceRadius.value = guidedTraceRadius;
+                    if (lblGuidedTraceRadius) lblGuidedTraceRadius.innerText = guidedTraceRadius + 'px';
+                    
+                    const coords = getCanvasCoords(e);
+                    const snapped = snapToDarkest(coords.rawX, coords.rawY);
+                    updateGuidedTraceCursorPreview(coords.rawX, coords.rawY, snapped.x, snapped.y);
+                    return;
+                }
+            }
+
             e.preventDefault();
             const factor = 1.08;
             const oldZoom = zoom;
@@ -3924,6 +4319,18 @@
             zoom = newZoom;
             
             updateCanvasTransform();
+        });
+
+        canvasViewport.addEventListener('mouseleave', () => {
+            if (activeTool === 'guided-trace' && guidedTraceGroup) {
+                guidedTraceGroup.innerHTML = '';
+            }
+        });
+
+        canvasViewport.addEventListener('contextmenu', (e) => {
+            if (activeTool === 'trace' || activeTool === 'guided-trace') {
+                e.preventDefault();
+            }
         });
 
         // 4. Header buttons
@@ -4293,7 +4700,13 @@
             
             if (isCtrl && e.key === 'z') {
                 e.preventDefault();
-                undo();
+                if (isDrawing) {
+                    removeLastDrawingPoint();
+                } else if ((activeTool === 'trace' || activeTool === 'guided-trace') && tracePoints.length > 0) {
+                    removeLastTracePoint();
+                } else {
+                    undo();
+                }
             } else if (isCtrl && e.key === 'y') {
                 e.preventDefault();
                 redo();
@@ -4307,7 +4720,7 @@
                     saveState();
                 }
             } else if (e.key === 'Escape') {
-                if (activeTool === 'trace') {
+                if (activeTool === 'trace' || activeTool === 'guided-trace') {
                     clearTraceSession();
                 } else if (isDrawing) {
                     if (activeTool === 'pen' || activeTool === 'polygon') {
@@ -4319,7 +4732,7 @@
                     selectElements([]);
                 }
             } else if (e.key === 'Enter') {
-                if (activeTool === 'trace') {
+                if (activeTool === 'trace' || activeTool === 'guided-trace') {
                     completeTraceSession(false);
                 } else if (isDrawing && (activeTool === 'pen' || activeTool === 'polygon')) {
                     finishActiveDraw(false);
@@ -4356,6 +4769,7 @@
                 else if (e.key.toLowerCase() === 'g') triggerToolBtn('bucket');
                 else if (e.key.toLowerCase() === 't') triggerToolBtn('text');
                 else if (e.key.toLowerCase() === 's') triggerToolBtn('trace');
+                else if (e.key.toLowerCase() === 'k') triggerToolBtn('guided-trace');
             }
         });
         
@@ -4444,6 +4858,18 @@
             renderTracePreview();
         });
 
+        if (valGuidedTraceRadius) {
+            valGuidedTraceRadius.addEventListener('input', (e) => {
+                guidedTraceRadius = parseInt(e.target.value, 10);
+                lblGuidedTraceRadius.innerText = guidedTraceRadius + 'px';
+            });
+        }
+        if (valGuidedTraceInterval) {
+            valGuidedTraceInterval.addEventListener('input', (e) => {
+                guidedTraceInterval = parseInt(e.target.value, 10);
+                lblGuidedTraceInterval.innerText = guidedTraceInterval + 'px';
+            });
+        }
 
     }
 
